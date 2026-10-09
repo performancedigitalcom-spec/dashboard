@@ -1,0 +1,1 @@
+(function(){var s=document.createElement('style');s.textContent="@font-face{font-family:'PD Display';font-weight:200 800;font-display:swap;src:url('fonts/pd-display.woff2') format('woff2')}@font-face{font-family:'PD Text';font-weight:100 900;font-display:swap;src:url('fonts/pd-text.woff2') format('woff2')}";document.head.appendChild(s);})();
