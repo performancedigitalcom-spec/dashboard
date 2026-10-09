@@ -508,6 +508,8 @@ const DAYS=DATA.days, FIRST=DAYS[0], LAST=DAYS[DAYS.length-1];
    make "live" a label rather than a feature. So LMAX starts at LAST and is raised the first
    time a live payload reports a later freshness date. It only ever moves forward. */
 let LMAX=LAST;
+const todayISO=()=>{const d=new Date();
+  return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
 function raiseCeiling(d){
   if(!d||d<=LMAX) return false;
   LMAX=d;
@@ -908,16 +910,19 @@ const PRESETS=[
   ["Year to date",()=>[LMAX.slice(0,4)+"-01-01",LMAX]],
 ];
 function shift(s,n){const d=pdt(s);d.setDate(d.getDate()+n);const r=iso(d);return r<FIRST?FIRST:r;}
-function setRange(f,t){
-  if(f>t){[f,t]=[t,f];}
-  from=f<FIRST?FIRST:f; to=t>LMAX?LMAX:t;
-  el("fromD").value=from; el("toD").value=to;
+function markPresets(){
   let marked=false;                                   // only the first matching preset lights up
   document.querySelectorAll("#presets .chip").forEach(ch=>{
     const r=PRESETS[+ch.dataset.i][1](), hit=!marked&&r[0]===from&&r[1]===to;
     if(hit) marked=true;
     ch.classList.toggle("on",hit);
   });
+}
+function setRange(f,t){
+  if(f>t){[f,t]=[t,f];}
+  from=f<FIRST?FIRST:f; to=t>LMAX?LMAX:t;
+  el("fromD").value=from; el("toD").value=to;
+  markPresets();
   refresh();                       // a new date range needs a new live slice
 }
 el("presets").innerHTML=PRESETS.map((p,i)=>`<button class="chip" data-i="${i}">${p[0]}</button>`).join("");
@@ -1135,7 +1140,14 @@ async function refresh(opts){
   // It stays on the snapshot, and so does any client without an id.
   if(!LIVE.on||current===ALL||!cid){ LIVEDOC=null; LSTATE="snap"; render(); return; }
   const gen=++LGEN;
-  const params={client_id:cid,from:from,to:to};
+  // When the user is looking at everything-up-to-the-end, ask for everything up to TODAY
+  // rather than up to the current ceiling. The warehouse runs ahead of the baked snapshot,
+  // so requesting `to` would return a window that stops short of data we could have had and
+  // force a second round trip to go back for it — which measured 10.6s on the first click.
+  // The endpoint simply has no rows past its own latest date, so over-asking costs nothing.
+  const atEnd=(to===LMAX);
+  const reqTo=atEnd&&todayISO()>to ? todayISO() : to;
+  const params={client_id:cid,from:from,to:reqTo};
   if(opts.force) LCACHE.clear();
 
   const hadContent=!!el("detail").querySelector(":scope > *:not(.skelwrap):not(.errcard)");
@@ -1149,13 +1161,11 @@ async function refresh(opts){
     const res=await liveGet("dash-client",params);
     if(gen!==LGEN) return;                          // a newer selection won; drop this reply
 
-    // The reply tells us how far the warehouse actually runs. If that is past the ceiling and
-    // the user was looking at everything-up-to-the-end, quietly extend the window to include
-    // the newer days rather than showing them a range that stops short of data we have.
-    // raiseCeiling only moves forward and returns false once it has, so this cannot loop.
-    const atEnd=(to===LMAX);
+    // The reply tells us how far the warehouse actually runs. Raise the ceiling, and if the
+    // user was at the end, slide the visible range out to meet it. No refetch: the response
+    // in hand already covers the wider window, because of reqTo above.
     const moved=raiseCeiling(res.payload&&res.payload.freshness&&res.payload.freshness.latest_date);
-    if(moved&&atEnd){ adoptLive(res.payload); setRange(from,LMAX); return; }
+    if(moved&&atEnd){ to=LMAX; el("toD").value=to; markPresets(); }
 
     adoptLive(res.payload);
     LSTATE=res.cached?"cached":"live"; LERROR=null;
