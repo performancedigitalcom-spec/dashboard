@@ -429,7 +429,7 @@ dash.calc('pacing', {
 
 dash.calc('insights', {
   title: 'Campaign story, highlights and things to improve',
-  description: 'A short written summary of each client’s time frame, plus what went well and what to work on. Each client is compared with the period before and with the PD average for the same platform (every client added together). Lines about investment are left out when investment is hidden.',
+  description: 'A short written summary of each client’s time frame, plus what went well and what to work on. Each client is compared with the period before and with market click-through benchmarks for each platform and tactic (Meta 1.71%, TikTok 0.84%, Google search 6.66%, YouTube 0.65%, programmatic display 0.10%, native 0.20%, CTV 0.03%). Lines about investment are left out when investment is hidden.',
   inputs: ['totals', 'camps', 'audience', 'video', 'pacing', 'gtypes', 'creatives', 'periods'],
   fn: (totals, camps, audience, video, pacing, gtypes, creatives, periods) => {
     const CR = new Map();
@@ -439,6 +439,9 @@ dash.calc('insights', {
       CR.get(k).push(r);
     }
     const GT = new Map(gtypes.map((r) => [r.k, r]));
+    // Market click-through benchmarks (industry averages, not PD's own clients)
+    const BENCH = { Meta: 0.0171, TikTok: 0.0084, 'Google Ads|Search': 0.0666, 'Google Ads|YouTube': 0.0065, 'Programmatic|Display': 0.001, 'Programmatic|Native': 0.002, 'Programmatic|CTV': 0.0003 };
+    const BNAME = { Meta: 'Meta', TikTok: 'TikTok', 'Google Ads|Search': 'Google search', 'Google Ads|YouTube': 'YouTube', 'Programmatic|Display': 'programmatic display', 'Programmatic|Native': 'native', 'Programmatic|CTV': 'CTV' };
     const T = new Map(totals.map((r) => [r.k, r]));
     const nf = (v) => Math.round(v).toLocaleString('en-US');
     const big = (v) => (v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2).replace(/\.?0+$/, '') + ' million' : nf(v));
@@ -483,6 +486,7 @@ dash.calc('insights', {
         const solo = client !== 'All clients';
         const good = [], fix = [];
         const S = [], Sns = [];
+        let cmpSentence = null, cmpUp = null; // the vs-prior sentence, and a version that only mentions increases
         // ---- story ----
         const who = solo ? client : 'PD clients';
         const nC = cs.length;
@@ -491,6 +495,9 @@ dash.calc('insights', {
         Sns.push(s1);
         if (all.p_imp > 0) {
           const t = `Compared with ${prevName}, impressions were ${up(all.d_imp)} and clicks ${all.d_clk == null ? 'new' : up(all.d_clk)}.`;
+          const ups = [all.d_imp >= 0 && `impressions were ${up(all.d_imp)}`, all.d_clk != null && all.d_clk >= 0 && `clicks were ${up(all.d_clk)}`].filter(Boolean);
+          cmpSentence = t;
+          cmpUp = ups.length ? `Compared with ${prevName}, ${ups.join(' and ')}.` : '';
           S.push(t);
           Sns.push(t);
         } else {
@@ -525,15 +532,21 @@ dash.calc('insights', {
           S.push(t);
           Sns.push(t);
         }
-        // ---- platform click-through vs PD average and vs prior ----
+        // ---- click-through vs market benchmarks, and vs prior ----
+        if (solo) {
+          const cands = [];
+          for (const pl of ['Meta', 'TikTok']) { const r = pf.find((x) => x.platform === pl); if (r) cands.push([pl, r]); }
+          for (const ch of ['Search', 'YouTube']) { const r = GT.get(p.period + '|' + client + '|Google Ads|' + ch); if (r) cands.push(['Google Ads|' + ch, r]); }
+          for (const [key, r] of cands) {
+            const b = BENCH[key];
+            if (!b || r.imp < 2000 || r.ctr == null) continue;
+            const rel = r.ctr / b, nm = BNAME[key];
+            if (rel >= 1.2) good.push({ s: Math.min(rel - 1, 3), t: `${nm} click-through rate of ${pc(r.ctr)} is ${p0(rel - 1)} above the ${pc(b)} market benchmark.` });
+            else if (rel <= 0.8) fix.push({ s: 1 - rel, t: `${nm} click-through rate of ${pc(r.ctr)} is below the ${pc(b)} market benchmark. ${key.startsWith('Google Ads|Search') ? 'Tighter keywords and sharper ad copy are the usual first fix.' : 'Fresh creative or a clearer call to action is the usual first fix.'}` });
+          }
+        }
         for (const r of pf) {
           if (r.imp < 2000 || r.platform === 'Programmatic') continue;
-          const pd = T.get(p.period + '|All clients|' + r.platform);
-          if (solo && pd && pd.ctr && r.ctr != null) {
-            const rel = r.ctr / pd.ctr;
-            if (rel >= 1.2) good.push({ s: Math.min(rel - 1, 3), t: `${r.platform} click-through rate of ${pc(r.ctr)} is ${p0(rel - 1)} above the PD average for ${r.platform} (${pc(pd.ctr)}).` });
-            else if (rel <= 0.8) fix.push({ s: 1 - rel, t: `${r.platform} click-through rate of ${pc(r.ctr)} trails the PD average for ${r.platform} (${pc(pd.ctr)}). ${r.platform === 'Google Ads' ? 'Tighter keywords and sharper ad copy are the usual first fix.' : 'Fresh creative or a clearer call to action is the usual first fix.'}` });
-          }
           if (r.p_clk >= 50 && r.d_clk != null) {
             if (r.d_clk >= 0.2) good.push({ s: Math.min(r.d_clk, 2) * 0.8, t: `${r.platform} clicks grew ${p0(r.d_clk)} compared with ${prevName} (${nf(r.p_clk)} → ${nf(r.clk)}).` });
             else if (r.d_clk <= -0.2) fix.push({ s: -r.d_clk * 0.8, t: `${r.platform} clicks fell ${p0(r.d_clk)} compared with ${prevName} (${nf(r.p_clk)} → ${nf(r.clk)}).` + (r.d_spend != null && r.d_spend < -0.15 ? ' Investment was also lower, which explains part of the drop.' : '') , ns: r.d_spend != null && r.d_spend < -0.15 ? `${r.platform} clicks fell ${p0(r.d_clk)} compared with ${prevName} (${nf(r.p_clk)} → ${nf(r.clk)}).` : undefined });
@@ -551,11 +564,14 @@ dash.calc('insights', {
         }
         // ---- across clients (All clients view) ----
         if (!solo) {
-          const cl = totals.filter((r) => r.period === p.period && r.client !== 'All clients' && r.platform !== 'All' && r.platform !== 'Programmatic' && r.imp >= 5000 && r.ctr != null);
-          const rel = cl.map((r) => ({ r, pd: T.get(p.period + '|All clients|' + r.platform) })).filter((x) => x.pd && x.pd.ctr).map((x) => ({ ...x, v: x.r.ctr / x.pd.ctr }));
+          const cl = [
+            ...totals.filter((r) => r.period === p.period && r.client !== 'All clients' && (r.platform === 'Meta' || r.platform === 'TikTok') && r.imp >= 5000 && r.ctr != null).map((r) => [r.platform, r]),
+            ...gtypes.filter((r) => r.period === p.period && r.client !== 'All clients' && r.platform === 'Google Ads' && (r.channel === 'Search' || r.channel === 'YouTube') && r.imp >= 5000 && r.ctr != null).map((r) => ['Google Ads|' + r.channel, r]),
+          ];
+          const rel = cl.map(([key, r]) => ({ r, key, b: BENCH[key], v: r.ctr / BENCH[key] }));
           rel.sort((a, b) => b.v - a.v);
-          for (const x of rel.slice(0, 2)) if (x.v >= 1.3) good.push({ s: Math.min(x.v - 1, 3), t: `${x.r.client} leads on ${x.r.platform}: ${pc(x.r.ctr)} click-through rate against the ${pc(x.pd.ctr)} PD average.` });
-          for (const x of rel.slice(-2).reverse()) if (x.v <= 0.6) fix.push({ s: 1 - x.v, t: `${x.r.client} trails on ${x.r.platform}: ${pc(x.r.ctr)} click-through rate against the ${pc(x.pd.ctr)} PD average.` });
+          for (const x of rel.slice(0, 2)) if (x.v >= 1.3) good.push({ s: Math.min(x.v - 1, 3), t: `${x.r.client} leads on ${BNAME[x.key]}: ${pc(x.r.ctr)} click-through rate against the ${pc(x.b)} market benchmark.` });
+          for (const x of rel.slice(-2).reverse()) if (x.v <= 0.6) fix.push({ s: 1 - x.v, t: `${x.r.client} trails on ${BNAME[x.key]}: ${pc(x.r.ctr)} click-through rate against the ${pc(x.b)} market benchmark.` });
           const mv = totals.filter((r) => r.period === p.period && r.client !== 'All clients' && r.platform === 'All' && r.p_clk >= 100 && r.d_clk != null).sort((a, b) => b.d_clk - a.d_clk);
           const g0 = mv[0], f0 = mv[mv.length - 1];
           if (g0 && g0.d_clk >= 0.25) good.push({ s: Math.min(g0.d_clk, 2) * 0.7, t: `${g0.client} grew clicks the most: up ${p0(g0.d_clk)} compared with ${prevName} (${nf(g0.p_clk)} → ${nf(g0.clk)}).` });
@@ -564,15 +580,15 @@ dash.calc('insights', {
           if (through && p.end === through && stopped.length)
             fix.push({ s: 0.5, t: `No spend in the last three days: ${list(stopped.slice(0, 6).map((r) => r.client + ' (' + r.platform + ')'))}${stopped.length > 6 ? ' and ' + (stopped.length - 6) + ' more' : ''}. Confirm these pauses are planned.` });
         }
-        // ---- programmatic tactics vs the PD average for the same tactic ----
+        // ---- programmatic tactics vs market benchmarks ----
         if (solo) {
-          for (const tac of ['Display', 'Native']) {
+          for (const tac of ['Display', 'Native', 'CTV']) {
             const r = GT.get(p.period + '|' + client + '|Programmatic|' + tac);
-            const pd = GT.get(p.period + '|All clients|Programmatic|' + tac);
-            if (!r || !pd || r.imp < 10000 || !pd.ctr || r.ctr == null) continue;
-            const rel = r.ctr / pd.ctr;
-            if (rel >= 1.3) good.push({ s: Math.min(rel - 1, 3) * 0.9, t: `Programmatic ${tac.toLowerCase()} clicks at ${pc(r.ctr)}, ${p0(rel - 1)} above the PD average for ${tac.toLowerCase()} (${pc(pd.ctr)}).` });
-            else if (rel <= 0.7) fix.push({ s: (1 - rel) * 0.9, t: `Programmatic ${tac.toLowerCase()} clicks at ${pc(r.ctr)}, below the PD average for ${tac.toLowerCase()} (${pc(pd.ctr)}). New banner sizes or a stronger offer usually help.` });
+            const b = BENCH['Programmatic|' + tac];
+            if (!r || r.imp < 10000 || r.ctr == null) continue;
+            const rel = r.ctr / b, nm = tac === 'CTV' ? 'CTV' : tac.toLowerCase();
+            if (rel >= 1.3) good.push({ s: Math.min(rel - 1, 3) * 0.9, t: `Programmatic ${nm} clicks at ${pc(r.ctr, tac === 'CTV' ? 3 : 2)}, ${p0(rel - 1)} above the ${pc(b, tac === 'CTV' ? 3 : 2)} market benchmark for ${nm}.` });
+            else if (rel <= 0.7 && tac !== 'CTV') fix.push({ s: (1 - rel) * 0.9, t: `Programmatic ${nm} clicks at ${pc(r.ctr)}, below the ${pc(b)} market benchmark for ${nm}. New banner sizes or a stronger offer usually help.` });
           }
           const ctv = GT.get(p.period + '|' + client + '|Programmatic|CTV');
           if (ctv && ctv.plays >= 5000 && ctv.vcr >= 0.95)
@@ -609,17 +625,6 @@ dash.calc('insights', {
               fix.push({ s: 0.7, t: `${c.campaign} drew ${nf(c.clk)} search clicks but no recorded conversions. Worth checking conversion tracking and the landing page.` });
           }
         }
-        // ---- video ----
-        for (const pl of ['Meta', 'TikTok', 'Google Ads', 'Programmatic']) {
-          const v = V.get(p.period + '|' + client + '|' + pl);
-          const pd = V.get(p.period + '|All clients|' + pl);
-          if (!v || v.plays < 2000) continue;
-          if (solo && pd && pd.r100) {
-            const rel = v.r100 / pd.r100;
-            if (rel >= 1.2) good.push({ s: Math.min(rel - 1, 2) * 0.8, t: `${p0(v.r100)} of ${pl} video plays were watched to the end, ahead of the ${p0(pd.r100)} PD average.` });
-            else if (rel <= 0.75) fix.push({ s: (1 - rel) * 0.8, t: `Only ${p0(v.r100)} of ${pl} video plays reach the end (PD average ${p0(pd.r100)}). Most viewers leave before ${v.r50 < 0.5 * v.r25 ? 'the halfway mark' : 'the final quarter'}; a shorter cut or an earlier hook should help.` });
-          }
-        }
         // ---- audience ----
         if (solo) {
           for (const pl of ['Meta', 'TikTok']) {
@@ -654,7 +659,8 @@ dash.calc('insights', {
           }
         }
         const base = p.period + '|' + client;
-        rows.push({ k: base + '|story', period: p.period, client, type: 'story', n: 0, text: S.join(' '), text_ns: Sns.join(' ') });
+        const upOnly = (arr) => arr.map((x) => (x === cmpSentence ? cmpUp : x)).filter(Boolean).join(' ');
+        rows.push({ k: base + '|story', period: p.period, client, type: 'story', n: 0, text: S.join(' '), text_ns: Sns.join(' '), text_up: upOnly(S), text_ns_up: upOnly(Sns) });
         const emit = (arr, type) =>
           arr.sort((a, b) => b.s - a.s).slice(0, 5).forEach((x, i) =>
             rows.push({ k: base + '|' + type + i, period: p.period, client, type, n: i + 1, text: x.t, text_ns: x.ns === undefined ? x.t : x.ns }));
@@ -763,5 +769,65 @@ dash.calc('psizes', {
       }
     }
     return [...acc.values()].map((o) => ({ ...o, ctr: o.imp ? o.clk / o.imp : null }));
+  },
+});
+
+dash.calc('ctvmix', {
+  title: 'CTV networks, household income and conversion definitions',
+  description: 'CTV impressions, clicks and conversions by streaming network and by household income for each client and period, from Illumin by calendar month (a time frame counts every month it touches). Also lists what Primary, Secondary and Tertiary conversions meant for each client’s Illumin journeys (all tactics) in the period.',
+  inputs: ['campaigns', 'monthly', 'periods'],
+  fn: (campaigns, monthly, periods) => {
+    const info = {};
+    for (const c of campaigns) if (c.platform === 'Programmatic') info[c.campaign_id] = c;
+    const journey = {};
+    const cfgs = [];
+    for (const r of monthly) {
+      if (r.kind === 'journey') journey[r.cid] = { id: r.b, name: r.name };
+      if (r.kind === 'convcfg') cfgs.push(r);
+    }
+    const rows = [];
+    for (const p of periods) {
+      const m0 = p.start.slice(0, 7), m1 = p.end.slice(0, 7);
+      const acc = new Map();
+      const used = new Map(); // client -> Set(journey id)
+      for (const r of monthly) {
+        if ((r.kind !== 'ctvnet' && r.kind !== 'hhi') || r.m < m0 || r.m > m1) continue;
+        const c = info[r.cid];
+        if (!c) continue;
+        const j = journey[r.cid];
+        if (j && r.kind === 'hhi') {
+          if (!used.has(c.client)) used.set(c.client, new Map());
+          used.get(c.client).set(j.id, j.name);
+        }
+        if (c.channel !== 'CTV') continue;
+        for (const client of [c.client, 'All clients']) {
+          const k = [p.period, client, r.kind, r.b].join('|');
+          let o = acc.get(k);
+          if (!o) acc.set(k, (o = { k, period: p.period, client, kind: r.kind === 'ctvnet' ? 'net' : 'hhi', name: r.b, imp: 0, clk: 0, conv: 0, p1: 0, p2: 0, p3: 0, months: m0 === m1 ? m0 : m0 + ' to ' + m1 }));
+          o.imp += r.imp;
+          o.clk += r.clk;
+          o.conv += r.conv || 0;
+          o.p1 += r.p1 || 0;
+          o.p2 += r.p2 || 0;
+          o.p3 += r.p3 || 0;
+        }
+      }
+      const tot = new Map();
+      for (const o of acc.values()) {
+        const t = o.client + '|' + o.kind;
+        tot.set(t, (tot.get(t) || 0) + o.imp);
+      }
+      for (const o of acc.values()) rows.push({ ...o, share: o.imp / (tot.get(o.client + '|' + o.kind) || 1), ctr: o.imp ? o.clk / o.imp : null });
+      for (const [client, js] of used) {
+        for (const [jid, jname] of js) {
+          for (const c of cfgs) {
+            if (c.b !== jid || c.s > p.end || (c.e && c.e < p.start)) continue;
+            rows.push({ k: [p.period, client, 'def', jid, c.s].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: c.s, end: c.e || '', status: c.st, l1: c.l1, l2: c.l2, l3: c.l3, notes: c.notes || '' });
+          }
+          if (!cfgs.some((c) => c.b === jid)) rows.push({ k: [p.period, client, 'def', jid, ''].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: '', end: '', status: 'NONE', l1: '', l2: '', l3: '', notes: '' });
+        }
+      }
+    }
+    return rows;
   },
 });

@@ -89,8 +89,9 @@
         return items.map((r) => r[field]);
       };
       out.story = s ? s[field] : story.textContent;
-      out.good = fill(good, 'good', 'Nothing stands out above the PD average or the prior period yet.');
-      out.fix = fill(fix, 'improve', 'No clear weak spots against the PD average or the prior period.');
+      out.storyUp = s ? s[field + '_up'] || s[field] : story.textContent;
+      out.good = fill(good, 'good', 'Nothing stands out above the market benchmarks or the prior period yet.');
+      out.fix = fill(fix, 'improve', 'No clear weak spots against the market benchmarks or the prior period.');
     }
 
     // ---------- pacing ----------
@@ -289,6 +290,144 @@
         out.tactics.push({ tac, label: LBL[tac], cols: T[tac], rows: tr, n, imp });
       }
       document.getElementById('pcr-card').hidden = !rows.length;
+    }
+    // ---------- CTV networks, household income, conversion definitions ----------
+    const cm = data('ctvmix');
+    if (cm) {
+      const card = document.getElementById('ctv-card');
+      const mine = cm.filter((r) => r.period === period.period && r.client === st.client);
+      const nets = mine.filter((r) => r.kind === 'net');
+      const hh = mine.filter((r) => r.kind === 'hhi');
+      const defs = mine.filter((r) => r.kind === 'def');
+      const single = st.client !== 'All clients';
+      card.hidden = !nets.length && !hh.length;
+      const sum = (list) => {
+        const o = { imp: 0, clk: 0, conv: 0, p1: 0, p2: 0, p3: 0, share: 0 };
+        for (const r of list) for (const f of Object.keys(o)) o[f] += r[f] || 0;
+        o.ctr = o.imp ? o.clk / o.imp : null;
+        o.cpm = o.imp ? (o.conv / o.imp) * 1000 : null;
+        return o;
+      };
+      const named = nets.filter((r) => r.name && r.name !== '~other').sort((a, b) => b.imp - a.imp);
+      const TOP = 12;
+      const k1 = (r) => (r.imp ? (r.conv / r.imp) * 1000 : null);
+      const netRows = named.slice(0, TOP).map((r) => ({ ...r, cpm: k1(r), label: r.name }));
+      const rest = [...named.slice(TOP), ...nets.filter((r) => r.name === '~other')];
+      if (rest.length) netRows.push({ ...sum(rest), label: 'All other networks', muted: true, count: named.length - Math.min(TOP, named.length) });
+      const unrep = nets.filter((r) => !r.name);
+      if (unrep.length) netRows.push({ ...sum(unrep), label: 'Network not reported', muted: true });
+      const ctvImp = nets.reduce((a, r) => a + r.imp, 0);
+      const known = ctvImp - unrep.reduce((a, r) => a + r.imp, 0);
+      const HHI = ['Under $25,000', '$25,000-$50,000', '$50,001-$75,000', '$75,001-$100,000', '$100,001-$150,000', '$150,001-$200,000', '$200,001+', 'Unknown'];
+      const hhRows = hh.slice().sort((a, b) => HHI.indexOf(a.name) - HHI.indexOf(b.name)).map((r) => ({ ...r, cpm: k1(r), label: r.name.replace(/-/g, ' – ').replace('Unknown', 'Income not known'), muted: r.name === 'Unknown' }));
+      const showPST = single && nets.some((r) => r.p1 || r.p2 || r.p3);
+      const netCols = [['label', 'Network'], ['share', 'Share of CTV impressions'], ['imp', 'Impressions'], ['conv', 'Conv.'], ['cpm', 'Conv. per 1K impr.']];
+      if (showPST) netCols.push(['p1', 'Primary'], ['p2', 'Secondary'], ['p3', 'Tertiary']);
+      const hhCols = [['label', 'Household income'], ['share', 'Share of CTV impressions'], ['imp', 'Impressions'], ['conv', 'Conv.'], ['cpm', 'Conv. per 1K impr.']];
+      const fmtC = { imp: (v) => nf(v), clk: (v) => nf(v), ctr: pct, conv: (v) => d3.format(',.0f')(v || 0), p1: (v) => d3.format(',.0f')(v || 0), p2: (v) => d3.format(',.0f')(v || 0), p3: (v) => d3.format(',.0f')(v || 0), cpm: (v) => (v == null ? '—' : d3.format(',.2f')(v)) };
+      const draw = (table, cols, rows) => {
+        const head = el('tr');
+        cols.forEach(([f, l], i) => head.append(el('th', i === 0 ? null : f === 'share' ? 'txt' : null, l)));
+        table.tHead.replaceChildren(head);
+        const tb = table.tBodies[0];
+        tb.replaceChildren();
+        if (!rows.length) {
+          const tr = el('tr');
+          const td = el('td', 'pd-empty', 'No CTV delivery in this time frame.');
+          td.colSpan = cols.length;
+          tr.append(td);
+          tb.append(tr);
+          return;
+        }
+        for (const r of rows) {
+          const tr = el('tr', r.muted ? 'muted' : null);
+          for (const [f] of cols) {
+            if (f === 'share') {
+              const td = el('td', 'bar txt');
+              td.append(bar(r.share, r.muted ? '#94A3B8' : null), el('em', null, p0(r.share)));
+              tr.append(td);
+            } else if (f === 'label') {
+              tr.append(el('td', null, r.label + (r.count ? ` (${r.count})` : '')));
+            } else tr.append(el('td', null, fmtC[f](r[f])));
+          }
+          tb.append(tr);
+        }
+        // hide all-zero conversion columns
+        cols.forEach(([f], i) => {
+          if (!['conv', 'clk', 'p1', 'p2', 'p3', 'cpm'].includes(f)) return;
+          const empty = rows.every((r) => !r[f]);
+          table.tHead.rows[0].children[i].hidden = empty;
+          for (const tr of tb.rows) if (tr.children[i]) tr.children[i].hidden = empty;
+        });
+      };
+      draw(document.getElementById('ctvnet-table'), netCols, netRows);
+      draw(document.getElementById('hhi-table'), hhCols, hhRows);
+      const netSub = ctvImp ? `${nf(named.length)} network${named.length === 1 ? '' : 's'} · ${p0(known / ctvImp)} of impressions named` : '';
+      document.getElementById('ctvnet-sub').textContent = netSub;
+      const hhKnown = hh.filter((r) => r.name !== 'Unknown').reduce((a, r) => a + r.imp, 0), hhAll = hh.reduce((a, r) => a + r.imp, 0);
+      const top = hh.filter((r) => r.name !== 'Unknown').sort((a, b) => b.imp - a.imp)[0];
+      const hhSub = hhAll ? `${p0(hhKnown / hhAll)} of impressions matched to an income` : '';
+      document.getElementById('hhi-sub').textContent = hhSub;
+      document.getElementById('ctv-note').textContent = 'Where the CTV ads ran and the household income of the homes that saw them, from Illumin by calendar month (a time frame counts every month it touches). Exchanges don’t always pass the network name, so part of the delivery is listed as “Network not reported”.';
+      // conversion definitions
+      const dbox = document.getElementById('ctv-defs');
+      dbox.replaceChildren();
+      const pretty = (n) => String(n || '').replace(/^Performance Digital_/, '').replace(/_/g, ' · ');
+      const lab = (t) => String(t || '').split(/\n+/).map((x) => x.trim()).filter(Boolean).join(' · ');
+      const jlabel = (names) => {
+        if (names.length < 2) return pretty(names[0]);
+        const parts = names.map((n) => pretty(n).split(' · '));
+        const common = parts[0].filter((t) => parts.every((p) => p.includes(t)));
+        const diff = parts.map((p) => p.filter((t) => !common.includes(t)).join(' · ')).filter(Boolean);
+        return diff.length === names.length ? `${common[0] || 'Journeys'} · ${diff.join(' + ')}` : names.map(pretty).join(' + ');
+      };
+      const span = (d) => (d.start && d.end ? `${dayFmt(parse(d.start))} – ${dayFmt(parse(d.end))}` : d.start ? `Since ${dayFmt(parse(d.start))}` : '');
+      const defOut = [];
+      const dcard = document.getElementById('pdef-card');
+      const hasDefs = single && defs.some((d) => d.status !== 'NONE');
+      dcard.hidden = !hasDefs;
+      if (hasDefs) {
+        // journeys with identical definitions (same dates and labels) are shown once
+        const sig = (d) => [d.start, d.end, d.status, d.l1, d.l2, d.l3, d.notes].join('¦');
+        const merged = new Map();
+        for (const d of defs.slice().sort((a, b) => (a.start + a.name).localeCompare(b.start + b.name))) {
+          const m = merged.get(sig(d));
+          if (m) { if (!m.names.includes(d.name)) m.names.push(d.name); }
+          else merged.set(sig(d), { ...d, names: [d.name] });
+        }
+        const byJ = d3.group([...merged.values()].sort((a, b) => (a.names.join() + a.start).localeCompare(b.names.join() + b.start)), (d) => d.names.join('|'));
+        const changed = [...byJ.values()].some((l) => l.length > 1);
+        dbox.append(el('p', null, changed
+          ? 'The definitions changed during this time frame, so the counts above combine the actions listed for each date range.'
+          : 'Illumin conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count, so they are listed here for this time frame.'));
+        for (const [, list] of byJ) {
+          for (const d of list) {
+            const row = el('div', 'pd-def');
+            const when = el('div', 'when');
+            when.append(el('b', null, jlabel(d.names)), document.createTextNode(span(d)));
+            const body = el('div');
+            const o = { journey: jlabel(d.names), when: span(d), status: d.status, items: [], notes: d.notes };
+            if (d.status === 'MAPPED') {
+              const dl = el('dl');
+              for (const [k, t] of [['Primary', d.l1], ['Secondary', d.l2], ['Tertiary', d.l3]]) {
+                if (!t) continue;
+                dl.append(el('dt', null, k), el('dd', null, lab(t)));
+                o.items.push([k, lab(t)]);
+              }
+              body.append(dl);
+              if (d.notes) body.append(el('div', 'when', d.notes));
+            } else if (d.status === 'NONE') {
+              body.append(el('div', 'when', 'No conversion definitions on file for this journey yet, so the counts are shown as Illumin reports them.'));
+            } else {
+              body.append(el('div', 'warn', d.notes || 'No confirmed conversion mapping for these dates.'));
+            }
+            row.append(when, body);
+            dbox.append(row);
+            defOut.push(o);
+          }
+        }
+      }
+      out.ctv = card.hidden && dcard.hidden ? null : { show: !card.hidden, nets: netRows, hhi: hhRows, netSub, hhSub, pst: showPST, defs: defOut, single, changed: single && defOut.length > new Set(defOut.map((d) => d.journey)).size };
     }
     const ps = data('psizes');
     if (ps && PD.fillTable) {

@@ -225,6 +225,27 @@ body.pd-accounts .team { display: none !important; }
   .pd-sub2 { text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; font-weight: 700; }
   .pd-legend { font-weight: 500; }
   .pd-defs { font-size: 12px; line-height: 1.6; }
+  .pd-ctv { display: grid; grid-template-columns: 1fr; gap: 26px; }
+  .pd-ctv .pd-table-wrap { max-height: none; }
+  .pd-ctv h4 { margin: 0 0 6px; font-family: var(--pd-display); font-weight: 700; font-size: 14px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .pd-ctv h4 span { font-family: var(--pd-text); font-weight: 500; font-size: 12px; color: var(--color-fg-muted); }
+  .pd-ctv td.bar { width: 30%; min-width: 8rem; }
+  .pd-ctv td.bar .pd-bar { min-width: 0; display: inline-block; width: calc(100% - 3.2em); vertical-align: middle; height: 8px; }
+  .pd-ctv td.bar em { font-style: normal; display: inline-block; width: 3em; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-fg-muted); font-size: 12px; }
+  .pd-ctv tr.muted td { color: var(--color-fg-muted); }
+  .pd-ctv .pd-bar > i { background: var(--c, var(--pd-blue)); }
+  .pd-defs { margin-top: 2px; }
+  .pd-defs h4 { margin: 0 0 4px; font-family: var(--pd-display); font-weight: 700; font-size: 14px; }
+  .pd-defs > p { margin: 0 0 10px; color: var(--color-fg-muted); font-size: 12.5px; line-height: 1.5; }
+  .pd-def { display: grid; grid-template-columns: 15rem 1fr; gap: 4px 14px; padding: 10px 0; border-top: 1px dashed var(--color-border-line); font-size: 13px; line-height: 1.45; }
+  .pd-def:first-of-type { border-top: 0; }
+  .pd-def .when { color: var(--color-fg-muted); font-size: 12px; }
+  .pd-def .when b { display: block; color: var(--color-fg); font-size: 13px; }
+  .pd-def dl { margin: 0; display: grid; grid-template-columns: 6.5rem 1fr; gap: 3px 10px; }
+  .pd-def dt { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-fg-muted); padding-top: 2px; }
+  .pd-def dd { margin: 0; }
+  .pd-def .warn { color: #b45309; }
+  @media (max-width: 640px) { .pd-def { grid-template-columns: 1fr; } }
   .pd-tactic { margin-top: 18px; }
   .pd-tactic:first-of-type { margin-top: 4px; }
   .pd-tactic h4 { margin: 0 0 6px; font-family: var(--pd-display); font-weight: 700; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
@@ -542,11 +563,29 @@ body.pd-accounts .team { display: none !important; }
         </table>
       </div>
     </div>
+    <div class="pd-card" id="pdef-card" hidden>
+      <h3>What Illumin conversions count</h3>
+      <div class="pd-defs" id="ctv-defs" data-source="ctvmix"></div>
+    </div>
     <div class="pd-grid">
       <div class="pd-card" style="grid-column: 1 / -1" id="pcr-card">
         <h3>Programmatic creatives by tactic</h3>
         <p class="note">Each creative Illumin served, grouped by tactic, by calendar month. Illumin reports investment by campaign, not by creative.</p>
         <div id="pcr-box" data-source="creatives"></div>
+      </div>
+      <div class="pd-card" style="grid-column: 1 / -1" id="ctv-card" hidden>
+        <h3>CTV networks and households</h3>
+        <p class="note" id="ctv-note">Where the CTV ads ran and the household income of the homes that saw them, from Illumin by calendar month.</p>
+        <div class="pd-ctv" data-source="ctvmix">
+          <div>
+            <h4>Streaming networks <span id="ctvnet-sub"></span></h4>
+            <div class="pd-table-wrap"><table class="pd-table" id="ctvnet-table"><thead></thead><tbody></tbody></table></div>
+          </div>
+          <div>
+            <h4>Households by income <span id="hhi-sub"></span></h4>
+            <div class="pd-table-wrap"><table class="pd-table" id="hhi-table"><thead></thead><tbody></tbody></table></div>
+          </div>
+        </div>
       </div>
       <div class="pd-card">
         <h3>Display and native by ad size</h3>
@@ -584,7 +623,7 @@ body.pd-accounts .team { display: none !important; }
     </div>
   </section>
 
-  <p class="pd-defs" id="defs"><b>How these numbers are counted.</b> Impressions and clicks come straight from each ad platform. Clicks on Meta are link clicks. Conversions add Google Ads conversions to the leads, calls and messaging conversations Meta attributes to a campaign; TikTok campaigns here are traffic campaigns with no conversion goal. Programmatic (Illumin) conversions include view-through conversions and are shown in their own section, not in the conversion total. Click-through rate across all platforms includes CTV and audio, which are rarely clicked. Website analytics come from GA4 for the clients whose property is linked in the PD warehouse. Audience and video numbers come from monthly platform reports, so a time frame counts every calendar month it touches. Pacing compares this month’s spend with last month’s spend per active day; the projection adds the last 7 days’ daily average for each day left. Highlights compare each client with the period before and with the PD average for the same platform. “vs prior” compares to the same number of days just before the time frame (for a calendar month, the month before). Investment is what each platform reports as spent.</p>
+  <p class="pd-defs" id="defs"><b>How these numbers are counted.</b> Impressions and clicks come straight from each ad platform. Clicks on Meta are link clicks. Conversions add Google Ads conversions to the leads, calls and messaging conversations Meta attributes to a campaign; TikTok campaigns here are traffic campaigns with no conversion goal. Programmatic (Illumin) conversions include view-through conversions and are shown in their own section, not in the conversion total. Click-through rate across all platforms includes CTV and audio, which are rarely clicked. Website analytics come from GA4 for the clients whose property is linked in the PD warehouse. Audience and video numbers come from monthly platform reports, so a time frame counts every calendar month it touches. Pacing compares this month’s spend with last month’s spend per active day; the projection adds the last 7 days’ daily average for each day left. Highlights compare each client with the period before and with market click-through benchmarks: Meta 1.71% and Google search 6.66% (WordStream), TikTok 0.84%, YouTube 0.65%, and programmatic display 0.10%, native 0.20% and CTV 0.03% (Focus Digital / Gourmet Ads). CTV networks and household income come from Illumin; “Network not reported” is delivery where the exchange didn’t pass a network name. “vs prior” compares to the same number of days just before the time frame (for a calendar month, the month before). Investment is what each platform reports as spent.</p>
 </div>
 
 </div>

@@ -116,7 +116,7 @@
       ctx.fillRect(x, doc.y, w, 4);
       doc.text(it.label.toUpperCase(), x + 18, doc.y + 34, { size: 14, color: MUTED, weight: '700', maxW: w - 24 });
       doc.text(it.value, x + 16, doc.y + 78, { size: 34, color: INK, weight: '800', font: DISPLAY, maxW: w - 24 });
-      if (it.change != null) {
+      if (it.change) {
         const col = it.change === '—' ? MUTED : it.change.startsWith('+') ? '#1a7f37' : it.change.startsWith('−') ? '#c62828' : MUTED;
         const tw = doc.text(it.change, x + 16, doc.y + 104, { size: 17, color: col });
         doc.text(' vs prior', x + 16 + tw, doc.y + 104, { size: 17, color: MUTED });
@@ -249,16 +249,16 @@
     return out;
   }
 
-  function storyBlock(doc, ex, showFix) {
+  function storyBlock(doc, ex, showFix, upOnly) {
     if (!ex || !ex.story) return;
     heading(doc, 'Campaign story');
-    doc.wrap(ex.story, M, W - 2 * M, { size: 21, lh: 1.5 });
+    doc.wrap(upOnly ? ex.storyUp || ex.story : ex.story, M, W - 2 * M, { size: 21, lh: 1.5 });
     doc.y += 26;
     const two = showFix !== false;
     const gap = 30, cw = two ? (W - 2 * M - gap) / 2 : W - 2 * M, size = 19, lh = size * 1.45;
     const cols = [
-      { title: 'Highlights', color: '#1a7f37', items: ex.good.length ? ex.good : ['Nothing stands out above the PD average or the prior period yet.'] },
-      two && { title: 'Things to improve', color: '#c62828', items: ex.fix.length ? ex.fix : ['No clear weak spots against the PD average or the prior period.'] },
+      { title: 'Highlights', color: '#1a7f37', items: ex.good.length ? ex.good : ['Nothing stands out above the market benchmarks or the prior period yet.'] },
+      two && { title: 'Things to improve', color: '#c62828', items: ex.fix.length ? ex.fix : ['No clear weak spots against the market benchmarks or the prior period.'] },
     ].filter(Boolean).map((c) => ({ ...c, wrapped: c.items.map((t) => lines(doc, t, cw - 60, size)) }));
     const hOf = (c) => 64 + c.wrapped.reduce((a, l) => a + l.length * lh + 12, 0);
     const h = Math.max(...cols.map(hOf));
@@ -388,8 +388,70 @@
     }
   }
 
+  function defsBlock(doc, cx) {
+    doc.ensure(200);
+    doc.text('What Illumin conversions count', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+    doc.y += 38;
+    doc.wrap(cx.changed ? 'The definitions changed during this time frame, so the counts combine the actions listed for each date range.' : 'Illumin conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count.', M, W - 2 * M, { size: 16, color: MUTED, lh: 1.45 });
+    doc.y += 6;
+    const lw = 330, kx = M + lw + 20, vx = kx + 130, vw = W - M - vx;
+    for (const d of cx.defs) {
+      const items = d.status === 'MAPPED' ? d.items : [['', d.status === 'NONE' ? 'No conversion definitions on file for this journey yet.' : d.notes || 'No confirmed conversion mapping for these dates.']];
+      const wrapped = items.map(([k, t]) => [k, lines(doc, t, vw, 16)]);
+      const jl = lines(doc, d.journey, lw, 16);
+      const h = Math.max(jl.length * 23 + 24, wrapped.reduce((a, [, l]) => a + l.length * 23 + 4, 0) + (d.notes && d.status === 'MAPPED' ? 26 : 0)) + 14;
+      doc.ensure(h);
+      doc.ctx.fillStyle = LINE;
+      doc.ctx.fillRect(M, doc.y, W - 2 * M, 1);
+      let y = doc.y + 26;
+      for (const t of jl) { doc.text(t, M, y, { size: 16, weight: '700' }); y += 23; }
+      doc.text(d.when || '', M, y, { size: 15, color: MUTED });
+      y = doc.y + 26;
+      for (const [k, l] of wrapped) {
+        if (k) doc.text(k.toUpperCase(), kx, y, { size: 13, weight: '700', color: MUTED });
+        for (const t of l) { doc.text(t, k ? vx : kx, y, { size: 16, color: d.status === 'MAPPED' ? INK : '#b45309' }); y += 23; }
+        y += 4;
+      }
+      if (d.notes && d.status === 'MAPPED') doc.text(d.notes, vx, y, { size: 14, color: MUTED, maxW: vw });
+      doc.y += h;
+    }
+    doc.y += 10;
+  }
+
+  function ctvBlock(doc, cx, v) {
+    const k1 = (r) => (r.cpm == null ? '—' : d3.format(',.2f')(r.cpm));
+    const shareCol = (w) => ({ label: 'Share of CTV impressions', w, align: 'left', draw: (ctx, x, y, cw, rh, r) => {
+      hbar(doc.ctx, x + 8, y + 12, cw - 80, 10, r.share, r.muted ? '#94A3B8' : BLUE);
+      doc.text(d3.format('.0%')(r.share || 0), x + cw - 8, y + 23, { size: 15, color: MUTED, align: 'right' });
+    } });
+    const conv = (f) => (r) => d3.format(',.0f')(r[f] || 0);
+    const lab = (r) => r.label + (r.count ? ` (${r.count})` : '');
+    doc.ensure(200);
+    doc.text('CTV streaming networks', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+    doc.text(cx.netSub, W - M, doc.y + 26, { size: 16, color: MUTED, align: 'right' });
+    doc.y += 40;
+    const anyConv = cx.nets.some((r) => r.conv);
+    let nc = [{ label: 'Network', w: 0.24, align: 'left', get: lab }, shareCol(0.22), { label: 'Impressions', w: 0.14, get: (r) => int(r.imp) }];
+    if (anyConv) nc.push({ label: 'Conv.', w: 0.1, get: conv('conv') }, { label: 'Per 1K impr.', w: 0.12, get: k1 });
+    if (cx.pst) for (const [f, l] of [['p1', 'Primary'], ['p2', 'Secondary'], ['p3', 'Tertiary']]) if (cx.nets.some((r) => r[f])) nc.push({ label: l, w: 0.115, get: conv(f) });
+    const tw = nc.reduce((a, c) => a + c.w, 0);
+    nc = nc.map((c) => ({ ...c, w: c.w / tw }));
+    table(doc, nc, cx.nets);
+    doc.ensure(200);
+    doc.text('CTV households by income', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+    doc.text(cx.hhSub, W - M, doc.y + 26, { size: 16, color: MUTED, align: 'right' });
+    doc.y += 40;
+    let hc = [{ label: 'Household income', w: 0.26, align: 'left', get: lab }, shareCol(0.34), { label: 'Impressions', w: 0.16, get: (r) => int(r.imp) }];
+    if (cx.hhi.some((r) => r.conv)) hc.push({ label: 'Conv.', w: 0.1, get: conv('conv') }, { label: 'Per 1K impr.', w: 0.14, get: k1 });
+    const th = hc.reduce((a, c) => a + c.w, 0);
+    table(doc, hc.map((c) => ({ ...c, w: c.w / th })), cx.hhi);
+  }
+
+  let HIDE_DOWN = false;
+  const chgP = (v) => (HIDE_DOWN && v != null && isFinite(v) && v < 0 ? '' : chg(v));
   function build(sel) {
     const on = (k) => !sel || sel.has(k);
+    HIDE_DOWN = on('hidedown');
     const v = window.PD.views;
     const sp = v.st.spend;
     const colors = dash.colors.slice(0, 4).map(resolveColor);
@@ -398,15 +460,15 @@
     const all = v.all;
     if (all) {
       const kt = [
-        { label: 'Impressions', value: int(all.imp), change: chg(all.d_imp) },
-        { label: 'Clicks', value: int(all.clk), change: chg(all.d_clk) },
-        { label: 'Click-through rate', value: pct(all.ctr), change: chg(all.d_ctr) },
-        { label: 'Conversions', value: dec(all.conv), change: chg(all.d_conv) },
+        { label: 'Impressions', value: int(all.imp), change: chgP(all.d_imp) },
+        { label: 'Clicks', value: int(all.clk), change: chgP(all.d_clk) },
+        { label: 'Click-through rate', value: pct(all.ctr), change: chgP(all.d_ctr) },
+        { label: 'Conversions', value: dec(all.conv), change: chgP(all.d_conv) },
       ];
-      if (sp) kt.push({ label: 'Investment', value: money0(all.spend), change: chg(all.d_spend) });
+      if (sp) kt.push({ label: 'Investment', value: money0(all.spend), change: chgP(all.d_spend) });
       if (on('summary')) {
         tiles(doc, kt);
-        storyBlock(doc, window.PD.extra, on('improve'));
+        storyBlock(doc, window.PD.extra, on('improve'), HIDE_DOWN);
       }
       if (on('daily')) {
         doc.ensure(420);
@@ -424,7 +486,7 @@
         { label: 'Conv.', w: 0.1, get: (r) => (r.platform === 'Programmatic' ? '—' : dec(r.conv)) },
       ];
       if (sp) mc.push({ label: 'Investment', w: 0.12, get: (r) => money0(r.spend) });
-      mc.push({ label: 'Impr. vs prior', w: sp ? 0.14 : 0.26, get: (r) => chg(r.d_imp) });
+      mc.push({ label: 'Impr. vs prior', w: sp ? 0.14 : 0.26, get: (r) => chgP(r.d_imp) });
       table(doc, mc, v.mixRows);
       }
     } else {
@@ -563,7 +625,7 @@
     }
     const pr = sec('Programmatic');
     const tacsAll = (window.PD.extra && window.PD.extra.tactics) || [];
-    const progOn = on('prog') || on('sizes') || tacsAll.some((x) => on('tac:' + x.tac));
+    const progOn = on('prog') || on('sizes') || on('ctv') || tacsAll.some((x) => on('tac:' + x.tac));
     if (progOn && pr && (pr.imp || pr.spend)) {
       fresh();
       heading(doc, 'Programmatic (Illumin)', colors[3]);
@@ -582,6 +644,8 @@
       if (sp) cc.push({ label: 'Investment', w: 0.1, get: (r) => money0(r.spend) });
       table(doc, cc.filter((c) => c.label !== 'Completion' || camp('Programmatic').some((r) => r.vcr != null)), camp('Programmatic'));
       }
+      const cx = window.PD.extra && window.PD.extra.ctv;
+      if ((on('prog') || on('ctv')) && cx && cx.single && cx.defs.some((d) => d.status !== 'NONE')) defsBlock(doc, cx);
       const tacs = tacsAll.filter((x) => on('tac:' + x.tac));
       const FMTS = { name: null, size: (r) => r.size || '—', imp: (r) => int(r.imp), clk: (r) => int(r.clk), ctr: (r) => pct(r.ctr), p100: (r) => int(r.p100), vcr: (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr)), pconv: (r) => dec(r.pconv) };
       for (const t of tacs) {
@@ -595,6 +659,7 @@
           ? { label: l, w: 0.46, align: 'left', get: (r) => (v.st.client === 'All clients' ? `${r.name} · ${r.client}` : r.name) }
           : { label: l, w: 0.54 / rest, align: f === 'size' ? 'left' : undefined, get: FMTS[f] })), t.rows);
       }
+      if (on('ctv') && cx && cx.show) ctvBlock(doc, cx, v);
       const psz = window.PD.extra && window.PD.extra.psizes;
       if (on('sizes') && psz && psz.length) {
         doc.ensure(160);
@@ -620,7 +685,7 @@
         table(doc, [
           { label: 'Client', w: 0.34, align: 'left', get: (r) => r.client },
           { label: 'Sessions', w: 0.14, get: (r) => int(r.sessions) },
-          { label: 'Vs prior', w: 0.12, get: (r) => chg(r.d_sessions) },
+          { label: 'Vs prior', w: 0.12, get: (r) => chgP(r.d_sessions) },
           { label: 'Engaged', w: 0.13, get: (r) => int(r.engaged) },
           { label: 'Engagement rate', w: 0.15, get: (r) => fr(r.engagement_rate) },
           { label: 'Key events', w: 0.12, get: (r) => int(r.key_events) },
@@ -628,11 +693,11 @@
       } else {
         const t = ga.total;
         tiles(doc, [
-          { label: 'Sessions', value: int(t.sessions), change: chg(t.d_sessions) },
-          { label: 'Engaged sessions', value: int(t.engaged), change: chg(t.d_engaged) },
+          { label: 'Sessions', value: int(t.sessions), change: chgP(t.d_sessions) },
+          { label: 'Engaged sessions', value: int(t.engaged), change: chgP(t.d_engaged) },
           { label: 'Engagement rate', value: fr(t.engagement_rate) },
           { label: 'Users', value: int(t.users) },
-          { label: 'Key events', value: int(t.key_events), change: chg(t.d_key_events) },
+          { label: 'Key events', value: int(t.key_events), change: chgP(t.d_key_events) },
         ]);
         table(doc, [
           { label: 'Channel', w: 0.34, align: 'left', get: (r) => r.channel },
@@ -743,8 +808,9 @@
         ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
       ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
         has('Programmatic') && ['prog', 'Programmatic campaigns']]],
-      ['Programmatic tactics', [...(ex.tactics || []).map((t) => ['tac:' + t.tac, `${t.label} creatives`]), ex.psizes && ex.psizes.length && ['sizes', 'Display and native by ad size']]],
+      ['Programmatic tactics', [...(ex.tactics || []).flatMap((t) => [['tac:' + t.tac, `${t.label} creatives`], t.tac === 'CTV' && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households']]), !(ex.tactics || []).some((t) => t.tac === 'CTV') && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households'], ex.psizes && ex.psizes.length && ['sizes', 'Display and native by ad size']]],
       ['Website', [ex.ga4 && (ex.ga4.all ? ex.ga4.rows.length : ex.ga4.total) && ['ga4', 'Website analytics (GA4)']]],
+      ['Options', [['hidedown', 'Hide decreases vs the prior period']]],
     ];
     return groups.map(([g, items]) => [g, items.filter(Boolean)]).filter(([, items]) => items.length);
   }
@@ -782,7 +848,7 @@
   document.addEventListener('click', (ev) => { if (!menu.hidden && !menu.contains(ev.target) && ev.target !== btn) setOpen(false); });
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') setOpen(false); });
   menu.querySelector('[data-all]').addEventListener('click', () => boxes().forEach((b) => (b.checked = true)));
-  menu.querySelector('[data-none]').addEventListener('click', () => boxes().forEach((b) => (b.checked = false)));
+  menu.querySelector('[data-none]').addEventListener('click', () => boxes().forEach((b) => { if (b.value !== 'hidedown') b.checked = false; }));
   go.addEventListener('click', async () => {
     const bs = boxes();
     const sel = new Set(bs.filter((b) => b.checked).map((b) => b.value));
@@ -797,12 +863,12 @@
         await Promise.all([document.fonts.load("800 40px 'PD Display'"), document.fonts.load("700 20px 'PD Display'"), document.fonts.load("400 18px 'PD Text'"), document.fonts.load("700 18px 'PD Text'")]);
       } catch (e) {}
       const v = window.PD.views;
-      const partial = bs.some((b) => !b.checked && b.value !== 'improve');
+      const partial = bs.some((b) => !b.checked && b.value !== 'improve' && b.value !== 'hidedown');
       const blob = toPdf(build(sel));
       const safe = (s) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
       let part = '';
       if (partial) {
-        const names = bs.filter((b) => b.checked).map((b) => b.parentElement.textContent.trim().split(' ')[0]);
+        const names = bs.filter((b) => b.checked && b.value !== 'improve' && b.value !== 'hidedown').map((b) => b.parentElement.textContent.trim().split(' ')[0]);
         part = '_' + safe(names.length > 2 ? 'selected-sections' : names.join('-'));
       }
       await save(blob, `${safe(v.st.client)}_${safe(v.period.label)}_${v.period.end}${part}.pdf`);
