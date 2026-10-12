@@ -194,11 +194,47 @@
     var cp = $('pd-change');
     if (cp) cp.addEventListener('click', function (e) { e.preventDefault(); $('pd-cur-pw').value = ''; $('pd-new-pw').value = ''; $('pd-new-pw2').value = ''; view('change'); });
     var so = $('pd-signout');
-    if (so) so.addEventListener('click', function (e) {
-      e.preventDefault();
+    if (so) so.addEventListener('click', function (e) { e.preventDefault(); signOut(); });
+    // account menu in the header (signed-in email, change password, sign out)
+    function signOut() {
       try { localStorage.removeItem('pd-dash-key'); localStorage.removeItem('pd-dash-session'); } catch (x) {}
       location.reload();
-    });
+    }
+    (function () {
+      var host = document.querySelector('.pd-controls');
+      if (!host) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'pd-acct';
+      wrap.innerHTML = '<button type="button" class="pd-acct-btn" id="pd-acct-btn" aria-haspopup="true" aria-expanded="false"><span class="pd-acct-av" id="pd-acct-av">PD</span><span id="pd-acct-name">Account</span><span aria-hidden="true">▾</span></button>' +
+        '<div class="pd-acct-menu" id="pd-acct-menu" hidden><div class="pd-acct-who">Signed in as<b id="pd-acct-email">—</b></div>' +
+        '<button type="button" class="acct" id="pd-acct-change">Change password</button>' +
+        '<button type="button" class="out" id="pd-acct-out">Sign out</button></div>';
+      host.appendChild(wrap);
+      var btn = $('pd-acct-btn'), menu = $('pd-acct-menu');
+      function label() {
+        var em = session && session.email;
+        var name = em ? em.split('@')[0] : 'Team';
+        name = name.charAt(0).toUpperCase() + name.slice(1);
+        $('pd-acct-name').textContent = name;
+        $('pd-acct-av').textContent = name.charAt(0).toUpperCase();
+        $('pd-acct-email').textContent = em || 'Team password';
+        $('pd-acct-change').hidden = !em;
+      }
+      window.PD_ACCT_LABEL = label;
+      function close() { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        label();
+        menu.hidden = !menu.hidden;
+        btn.setAttribute('aria-expanded', String(!menu.hidden));
+      });
+      document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      $('pd-acct-out').addEventListener('click', signOut);
+      $('pd-acct-change').addEventListener('click', function () { close(); $('pd-cur-pw').value = ''; $('pd-new-pw').value = ''; $('pd-new-pw2').value = ''; err(''); ok(''); view('change'); });
+      if (window.dash && dash.onData) dash.onData(label);
+      label();
+    })();
     // automatic sign-in on a remembered device
     (async function () {
       try {
