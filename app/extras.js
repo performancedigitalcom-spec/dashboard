@@ -50,7 +50,7 @@
     box.hidden = items.length < 2;
   }
   const data = (id) => {
-    const r = dash.data(id);
+    const r = PD.data ? PD.data(id) : dash.data(id);
     return r.status === 'ok' ? r.data : null;
   };
 

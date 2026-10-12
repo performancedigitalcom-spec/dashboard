@@ -25,16 +25,67 @@
   const PD = (window.PD = { metric: 'imp' });
   const state = () => {
     const p = dash.params();
-    return { client: p.client || 'All clients', period: p.period || 'last30', spend: p.spend !== false };
+    return { client: p.client || 'All clients', period: p.period || 'last30', spend: p.spend !== false, from: p.from || null, to: p.to || null };
   };
   PD.state = state;
+
+  // ---------- custom date range ----------
+  const CUSTOM_IDS = ['totals', 'camps', 'gtypes', 'audience', 'video', 'creatives', 'psizes', 'ga4', 'insights'];
+  const DAY = 864e5;
+  const iso = (d) => d.toISOString().slice(0, 10);
+  let customMemo = { key: null, res: null };
+  function customPeriod(from, to) {
+    const s = parse(from), e = parse(to);
+    const n = Math.round((e - s) / DAY) + 1;
+    return { period: 'custom', label: 'Custom range', start: from, end: to, prev_start: iso(new Date(+s - n * DAY)), prev_end: iso(new Date(+s - DAY)) };
+  }
+  PD.customOk = () => !!(window.PD_SPECS && CUSTOM_IDS.every((id) => window.PD_SPECS[id]));
+  function customData(id, st) {
+    const key = st.from + '|' + st.to;
+    if (customMemo.key !== key) customMemo = { key, res: {}, per: [customPeriod(st.from, st.to)] };
+    const memo = customMemo;
+    const get = (x) => {
+      if (x === 'periods') return { status: 'ok', data: memo.per };
+      if (!CUSTOM_IDS.includes(x)) return dash.data(x);
+      if (memo.res[x]) return { status: 'ok', data: memo.res[x] };
+      const spec = window.PD_SPECS[x];
+      const ins = [];
+      for (const i of spec.inputs) {
+        const r = get(i);
+        if (r.status !== 'ok') return r;
+        ins.push(r.data);
+      }
+      try {
+        memo.res[x] = spec.fn(...ins);
+      } catch (e) {
+        console.error(x, e);
+        return { status: 'error' };
+      }
+      return { status: 'ok', data: memo.res[x] };
+    };
+    return get(id);
+  }
+  PD.data = (id) => {
+    const st = state();
+    if (st.period === 'custom' && st.from && st.to && PD.customOk() && (CUSTOM_IDS.includes(id) || id === 'periods_custom')) return customData(id, st);
+    return dash.data(id);
+  };
 
   // ---------- controls ----------
   const selClient = document.getElementById('pd-client');
   const selPeriod = document.getElementById('pd-period');
   const chkSpend = document.getElementById('pd-spend');
   selClient.addEventListener('change', () => dash.setParams({ client: selClient.value }));
-  selPeriod.addEventListener('change', () => dash.setParams({ period: selPeriod.value }));
+  selPeriod.addEventListener('change', () => {
+    if (selPeriod.value === '__pick') {
+      const st = state();
+      selPeriod.value = st.period === 'custom' && st.from ? 'custom' : st.period;
+      openCalendar();
+      return;
+    }
+    if (selPeriod.value === 'custom') return;
+    dash.setParams({ period: selPeriod.value });
+  });
   chkSpend.addEventListener('change', () => dash.setParams({ spend: chkSpend.checked }));
   document.getElementById('trend-metric').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-m]');
@@ -84,12 +135,109 @@
     el.append(s, c);
   }
 
+
+  // ---------- calendar ----------
+  const calEl = document.getElementById('pd-cal');
+  let calView = null, calSel = { a: null, b: null };
+  function openCalendar() {
+    const st = state();
+    const latest = PD.latest || iso(new Date());
+    calSel = st.period === 'custom' && st.from ? { a: st.from, b: st.to } : { a: PD.period ? PD.period.start : null, b: PD.period ? PD.period.end : null };
+    const base = parse(calSel.b || latest);
+    calView = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - 1, 1));
+    calEl.hidden = false;
+    renderCal();
+  }
+  PD.openCalendar = openCalendar;
+  function closeCal() { calEl.hidden = true; }
+  function renderCal() {
+    const latest = PD.latest || iso(new Date());
+    const min = '2026-01-01';
+    const grid = calEl.querySelector('.pd-cal-months');
+    grid.replaceChildren();
+    for (let k = 0; k < 2; k++) {
+      const m0 = new Date(Date.UTC(calView.getUTCFullYear(), calView.getUTCMonth() + k, 1));
+      const box = document.createElement('div');
+      box.className = 'pd-cal-month';
+      const h = document.createElement('div');
+      h.className = 'pd-cal-title';
+      h.textContent = d3.utcFormat('%B %Y')(m0);
+      box.append(h);
+      const g = document.createElement('div');
+      g.className = 'pd-cal-grid';
+      for (const w of ['S', 'M', 'T', 'W', 'T', 'F', 'S']) {
+        const x = document.createElement('span');
+        x.className = 'dow';
+        x.textContent = w;
+        g.append(x);
+      }
+      for (let i = 0; i < m0.getUTCDay(); i++) g.append(document.createElement('span'));
+      const days = new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth() + 1, 0)).getUTCDate();
+      for (let d = 1; d <= days; d++) {
+        const ds = iso(new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth(), d)));
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = d;
+        b.dataset.d = ds;
+        const off = ds < min || ds > latest;
+        b.disabled = off;
+        const lo = calSel.a && calSel.b ? (calSel.a < calSel.b ? calSel.a : calSel.b) : calSel.a;
+        const hi = calSel.a && calSel.b ? (calSel.a < calSel.b ? calSel.b : calSel.a) : calSel.a;
+        if (lo && hi && ds >= lo && ds <= hi) b.classList.add('in');
+        if (ds === lo) b.classList.add('start');
+        if (ds === hi) b.classList.add('end');
+        if (ds === latest) b.classList.add('today');
+        g.append(b);
+      }
+      box.append(g);
+      grid.append(box);
+    }
+    const sum = calEl.querySelector('.pd-cal-sum');
+    if (calSel.a && calSel.b) {
+      const lo = calSel.a < calSel.b ? calSel.a : calSel.b, hi = calSel.a < calSel.b ? calSel.b : calSel.a;
+      const n = Math.round((parse(hi) - parse(lo)) / DAY) + 1;
+      sum.textContent = `${dayFmt(parse(lo))} – ${dayFmt(parse(hi))} · ${n} day${n === 1 ? '' : 's'}`;
+    } else sum.textContent = calSel.a ? 'Now pick the last day' : 'Pick the first day';
+    calEl.querySelector('[data-cal=apply]').disabled = !(calSel.a && calSel.b);
+    calEl.querySelector('[data-cal=prev]').disabled = iso(calView) <= min;
+    const next = new Date(Date.UTC(calView.getUTCFullYear(), calView.getUTCMonth() + 2, 1));
+    calEl.querySelector('[data-cal=next]').disabled = iso(next) > latest;
+  }
+  if (calEl) {
+    calEl.addEventListener('click', (ev) => {
+      const t = ev.target.closest('button');
+      if (!t) {
+        if (ev.target === calEl) closeCal();
+        return;
+      }
+      if (t.dataset.d) {
+        if (!calSel.a || calSel.b) calSel = { a: t.dataset.d, b: null };
+        else calSel.b = t.dataset.d;
+        renderCal();
+      } else if (t.dataset.cal === 'prev' || t.dataset.cal === 'next') {
+        calView = new Date(Date.UTC(calView.getUTCFullYear(), calView.getUTCMonth() + (t.dataset.cal === 'prev' ? -1 : 1), 1));
+        renderCal();
+      } else if (t.dataset.cal === 'apply') {
+        const lo = calSel.a < calSel.b ? calSel.a : calSel.b, hi = calSel.a < calSel.b ? calSel.b : calSel.a;
+        closeCal();
+        dash.setParams({ period: 'custom', from: lo, to: hi });
+      } else if (t.dataset.cal === 'cancel') closeCal();
+      else if (t.dataset.preset) {
+        const latest = PD.latest;
+        const n = +t.dataset.preset;
+        calSel = { a: iso(new Date(+parse(latest) - (n - 1) * DAY)), b: latest };
+        renderCal();
+      }
+    });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !calEl.hidden) closeCal(); });
+  }
+
   // ---------- main draw ----------
   function ready(ids) {
     const out = {};
     let status = 'ok';
     for (const id of ids) {
-      const r = dash.data(id);
+      const r = PD.data(id);
       out[id] = r.status === 'ok' ? r.data : null;
       if (r.status === 'error' || r.status === 'declined' || r.status === 'connect') status = 'error';
       else if (r.status !== 'ok' && status === 'ok') status = 'loading';
@@ -135,8 +283,12 @@
     const per = dash.data('periods');
     let period = null;
     if (per.status === 'ok') {
-      fillSelect(selPeriod, per.data.map((p) => ({ value: p.period, label: p.label })), st.period);
-      period = per.data.find((p) => p.period === st.period) || per.data[1];
+      const opts = per.data.map((p) => ({ value: p.period, label: p.label }));
+      const custom = st.period === 'custom' && st.from && st.to && PD.customOk();
+      if (custom) opts.push({ value: 'custom', label: `${shortDay(parse(st.from))} – ${shortDay(parse(st.to))}${st.from.slice(0, 4) !== st.to.slice(0, 4) ? ', ' + st.to.slice(0, 4) : ''}` });
+      if (PD.customOk()) opts.push({ value: '__pick', label: 'Choose dates…' });
+      fillSelect(selPeriod, opts, custom ? 'custom' : st.period);
+      period = custom ? customPeriod(st.from, st.to) : per.data.find((p) => p.period === st.period) || per.data[1];
       PD.period = period;
       PD.latest = per.data[0].end;
     }

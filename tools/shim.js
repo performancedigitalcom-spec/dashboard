@@ -202,21 +202,18 @@
     // automatic sign-in on a remembered device
     (async function () {
       try {
-        if (accounts) {
-          var s = JSON.parse(localStorage.getItem('pd-dash-session') || 'null');
-          if (s && s.r) {
-            hide('pd-gate');
-            await refresh(s.r, s.e);
-            await loadWith(await keyFromAccount());
-            return;
-          }
-        } else {
-          var saved = localStorage.getItem('pd-dash-key');
-          if (saved) {
-            hide('pd-gate');
-            await loadWith(await keyFromTeamPassword(saved));
-            return;
-          }
+        var s = accounts ? JSON.parse(localStorage.getItem('pd-dash-session') || 'null') : null;
+        if (s && s.r) {
+          hide('pd-gate');
+          await refresh(s.r, s.e);
+          await loadWith(await keyFromAccount());
+          return;
+        }
+        var saved = localStorage.getItem('pd-dash-key');
+        if (saved) {
+          hide('pd-gate');
+          await loadWith(await keyFromTeamPassword(saved));
+          return;
         }
       } catch (e) {
         try { localStorage.removeItem('pd-dash-session'); localStorage.removeItem('pd-dash-key'); } catch (x) {}

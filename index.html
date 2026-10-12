@@ -254,9 +254,44 @@ body.pd-accounts .team { display: none !important; }
   .pd-export-list input { accent-color: var(--pd-blue); width: 15px; height: 15px; }
   .pd-export-menu .pd-btn { margin-top: 6px; width: 100%; }
   .pd-export > .pd-btn { margin-top: 14px; }
+  .pd-cal[hidden], .pd-export-menu[hidden], .pd-card[hidden], .pd-section[hidden] { display: none !important; }
+  .pd-cal { position: fixed; inset: 0; z-index: 55; display: flex; align-items: flex-start; justify-content: center; padding: 90px 16px 16px; background: rgba(15, 23, 42, .18); }
+  .pd-cal-card { position: relative; background: var(--color-panel); border: 1px solid var(--pd-line); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .4); padding: 18px 20px 16px; width: min(620px, 100%); }
+  .pd-cal-hd { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--pd-display); font-size: 16px; }
+  .pd-cal-presets button { font: inherit; font-family: var(--pd-text); font-size: 12px; font-weight: 600; color: var(--pd-blue); background: color-mix(in srgb, var(--pd-blue) 8%, transparent); border: 0; border-radius: 999px; padding: 4px 10px; margin-left: 6px; cursor: pointer; }
+  .pd-cal-nav { position: absolute; top: 58px; left: 14px; right: 14px; display: flex; justify-content: space-between; pointer-events: none; }
+  .pd-cal-nav button { pointer-events: auto; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--pd-line); background: var(--color-panel); font-size: 18px; line-height: 1; cursor: pointer; color: var(--color-fg); }
+  .pd-cal-nav button:disabled { opacity: .3; cursor: default; }
+  .pd-cal-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; margin-top: 14px; }
+  .pd-cal-title { text-align: center; font-family: var(--pd-display); font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .pd-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px 0; }
+  .pd-cal-grid .dow { text-align: center; font-size: 10.5px; font-weight: 700; color: var(--color-fg-muted); padding: 4px 0; }
+  .pd-cal-grid button { font: inherit; font-size: 13px; height: 34px; border: 0; background: transparent; color: var(--color-fg); cursor: pointer; border-radius: 0; font-variant-numeric: tabular-nums; }
+  .pd-cal-grid button:hover:not(:disabled):not(.start):not(.end) { background: color-mix(in srgb, var(--pd-blue) 12%, transparent); border-radius: 8px; }
+  .pd-cal-grid button:disabled { color: var(--color-fg-muted); opacity: .35; cursor: default; }
+  .pd-cal-grid button.in { background: color-mix(in srgb, var(--pd-blue) 13%, transparent); }
+  .pd-cal-grid button.start, .pd-cal-grid button.end { background: var(--pd-blue); color: #fff; font-weight: 700; }
+  .pd-cal-grid button.start { border-radius: 8px 0 0 8px; } .pd-cal-grid button.end { border-radius: 0 8px 8px 0; } .pd-cal-grid button.start.end { border-radius: 8px; }
+  .pd-cal-grid button.today:not(.start):not(.end) { box-shadow: inset 0 -2px 0 var(--pd-blue); }
+  .pd-cal-ft { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--pd-line); }
+  .pd-cal-sum { font-size: 13px; font-weight: 600; }
+  .pd-cal-btn { font: inherit; font-weight: 700; font-size: 13px; padding: 8px 16px; border-radius: 10px; border: 0; background: var(--pd-blue); color: #fff; cursor: pointer; margin-left: 8px; }
+  .pd-cal-btn.ghost { background: transparent; color: var(--color-fg-muted); }
+  .pd-cal-btn:disabled { opacity: .45; cursor: default; }
 </style>
 
 <div class="pd" id="report">
+  <div class="pd-cal" id="pd-cal" hidden role="dialog" aria-label="Choose dates">
+    <div class="pd-cal-card">
+      <div class="pd-cal-hd">
+        <b>Choose a date range</b>
+        <span class="pd-cal-presets"><button type="button" data-preset="14">14 days</button><button type="button" data-preset="60">60 days</button><button type="button" data-preset="90">90 days</button></span>
+      </div>
+      <div class="pd-cal-nav"><button type="button" data-cal="prev" aria-label="Previous month">‹</button><button type="button" data-cal="next" aria-label="Next month">›</button></div>
+      <div class="pd-cal-months"></div>
+      <div class="pd-cal-ft"><span class="pd-cal-sum"></span><span><button type="button" class="pd-cal-btn ghost" data-cal="cancel">Cancel</button><button type="button" class="pd-cal-btn" data-cal="apply">Apply</button></span></div>
+    </div>
+  </div>
   <div class="pd-loader" id="pd-loader" role="status" aria-live="polite">
     <div class="pd-loader-card">
       <div class="pd-loader-stage" aria-hidden="true">

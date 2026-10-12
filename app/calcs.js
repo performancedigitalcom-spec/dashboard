@@ -1,3 +1,16 @@
+// Keep a copy of each calculation so the page can rerun them for a custom date range.
+(function () {
+  if (typeof window === 'undefined' || !window.dash || window.PD_SPECS) return;
+  var specs = (window.PD_SPECS = {});
+  var orig = window.dash.calc;
+  try {
+    window.dash.calc = function (id, o) {
+      specs[id] = o;
+      return orig.apply(window.dash, arguments);
+    };
+  } catch (e) {}
+})();
+
 dash.calc('periods', {
   title: 'Reporting periods',
   description: 'The date windows in the period picker, counted back from the latest day any platform has reported, each with the equal-length window before it.',
