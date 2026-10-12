@@ -154,6 +154,9 @@
       busy(this, false);
     });
     // forgot
+    var tl = $('pd-link-team');
+    if (tl) tl.addEventListener('click', function (e) { e.preventDefault(); accounts = false; document.body.classList.remove('pd-accounts'); view('login'); });
+    meta().then(function (m) { if (!m.wrapped && tl) tl.remove(); }).catch(function () {});
     $('pd-link-forgot').addEventListener('click', function (e) { e.preventDefault(); $('pd-forgot-email').value = $('pd-gate-email').value; view('forgot'); });
     $('pd-link-back').addEventListener('click', function (e) { e.preventDefault(); view('login'); });
     $('pd-v-forgot').addEventListener('submit', async function (ev) {
