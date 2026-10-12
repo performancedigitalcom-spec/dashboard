@@ -249,16 +249,17 @@
     return out;
   }
 
-  function storyBlock(doc, ex) {
+  function storyBlock(doc, ex, showFix) {
     if (!ex || !ex.story) return;
     heading(doc, 'Campaign story');
     doc.wrap(ex.story, M, W - 2 * M, { size: 21, lh: 1.5 });
     doc.y += 26;
-    const gap = 30, cw = (W - 2 * M - gap) / 2, size = 19, lh = size * 1.45;
+    const two = showFix !== false;
+    const gap = 30, cw = two ? (W - 2 * M - gap) / 2 : W - 2 * M, size = 19, lh = size * 1.45;
     const cols = [
       { title: 'Highlights', color: '#1a7f37', items: ex.good.length ? ex.good : ['Nothing stands out above the PD average or the prior period yet.'] },
-      { title: 'Things to improve', color: '#c62828', items: ex.fix.length ? ex.fix : ['No clear weak spots against the PD average or the prior period.'] },
-    ].map((c) => ({ ...c, wrapped: c.items.map((t) => lines(doc, t, cw - 60, size)) }));
+      two && { title: 'Things to improve', color: '#c62828', items: ex.fix.length ? ex.fix : ['No clear weak spots against the PD average or the prior period.'] },
+    ].filter(Boolean).map((c) => ({ ...c, wrapped: c.items.map((t) => lines(doc, t, cw - 60, size)) }));
     const hOf = (c) => 64 + c.wrapped.reduce((a, l) => a + l.length * lh + 12, 0);
     const h = Math.max(...cols.map(hOf));
     doc.ensure(h);
@@ -405,7 +406,7 @@
       if (sp) kt.push({ label: 'Investment', value: money0(all.spend), change: chg(all.d_spend) });
       if (on('summary')) {
         tiles(doc, kt);
-        storyBlock(doc, window.PD.extra);
+        storyBlock(doc, window.PD.extra, on('improve'));
       }
       if (on('daily')) {
         doc.ensure(420);
@@ -738,7 +739,7 @@
     const v = window.PD.views, ex = window.PD.extra || {};
     const has = (p) => { const r = v.tot.get(`${v.period.period}|${v.st.client}|${p}`); return r && (r.imp || r.spend); };
     const groups = [
-      ['Overview', [['summary', 'Headline numbers, story and highlights'], ['daily', 'Daily impressions chart'], ['mix', 'Channel mix'],
+      ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improve', '“Things to improve” box'], ['daily', 'Daily impressions chart'], ['mix', 'Channel mix'],
         ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
       ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
         has('Programmatic') && ['prog', 'Programmatic campaigns']]],
@@ -796,7 +797,7 @@
         await Promise.all([document.fonts.load("800 40px 'PD Display'"), document.fonts.load("700 20px 'PD Display'"), document.fonts.load("400 18px 'PD Text'"), document.fonts.load("700 18px 'PD Text'")]);
       } catch (e) {}
       const v = window.PD.views;
-      const partial = bs.some((b) => !b.checked);
+      const partial = bs.some((b) => !b.checked && b.value !== 'improve');
       const blob = toPdf(build(sel));
       const safe = (s) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
       let part = '';
