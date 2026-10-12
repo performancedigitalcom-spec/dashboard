@@ -23,6 +23,20 @@
   }
 
   const PD = (window.PD = { metric: 'imp' });
+  // every tactic gets its own color, used in the channel mix labels, bar and PDF
+  PD.TACTICS = [
+    { name: 'Meta', platform: 'Meta', channel: null, color: '#1B75BC' },
+    { name: 'Google Search', platform: 'Google Ads', channel: 'Search', color: '#E37400' },
+    { name: 'Google Display', platform: 'Google Ads', channel: 'Display', color: '#F2B200' },
+    { name: 'YouTube', platform: 'Google Ads', channel: 'YouTube', color: '#D93025' },
+    { name: 'Google App', platform: 'Google Ads', channel: 'App', color: '#8D6E63' },
+    { name: 'TikTok', platform: 'TikTok', channel: null, color: '#111827' },
+    { name: 'CTV', platform: 'Programmatic', channel: 'CTV', color: '#7B3FC4' },
+    { name: 'Programmatic display', platform: 'Programmatic', channel: 'Display', color: '#2E8B57' },
+    { name: 'Native', platform: 'Programmatic', channel: 'Native', color: '#0EA5A4' },
+    { name: 'Streaming audio', platform: 'Programmatic', channel: 'Audio', color: '#D6336C' },
+    { name: 'DOOH', platform: 'Programmatic', channel: 'DOOH', color: '#5B6BD8' },
+  ];
   const state = () => {
     const p = dash.params();
     return { client: p.client || 'All clients', period: p.period || 'last30', spend: p.spend !== false, from: p.from || null, to: p.to || null };
@@ -30,7 +44,7 @@
   PD.state = state;
 
   // ---------- custom date range ----------
-  const CUSTOM_IDS = ['totals', 'camps', 'gtypes', 'audience', 'video', 'creatives', 'psizes', 'ga4', 'insights'];
+  const CUSTOM_IDS = ['totals', 'camps', 'gtypes', 'audience', 'video', 'creatives', 'psizes', 'ga4', 'insights', 'ctvmix'];
   const DAY = 864e5;
   const iso = (d) => d.toISOString().slice(0, 10);
   let customMemo = { key: null, res: null };
@@ -357,6 +371,15 @@
 
     // channel mix
     const mixRows = PLATS.map((p) => tot.get(key(p))).filter((r) => r && (r.imp || r.spend));
+    const gmap = new Map(gtypes.filter((r) => r.period === period.period && r.client === st.client).map((r) => [r.platform + '|' + r.channel, r]));
+    const tacRows = PD.TACTICS.map((t) => {
+      const r = t.channel ? gmap.get(t.platform + '|' + t.channel) : tot.get(key(t.platform));
+      return r && r.imp ? { ...t, imp: r.imp, clk: r.clk, spend: r.spend } : null;
+    }).filter(Boolean);
+    const tacImp = tacRows.reduce((a, r) => a + r.imp, 0) || 1;
+    tacRows.forEach((r) => (r.share = r.imp / tacImp));
+    PD.tacRows = tacRows;
+    drawTactics(tacRows);
     fillTable(document.querySelector('#mix-table tbody'), mixRows, ['platform', 'imp', 'share_imp', 'clk', 'ctr', 'conv', 'spend', 'd_imp']);
 
     // trend
@@ -383,7 +406,7 @@
     const pRows = gtypes.filter((r) => r.period === period.period && r.client === st.client && r.platform === 'Programmatic').sort((a, b) => b.imp - a.imp);
     fillTable(document.querySelector('#ptype-table tbody'), pRows, ['channel', 'campaigns', 'imp', 'clk', 'ctr', 'vcr', 'pconv', 'cpm', 'spend']);
     document.getElementById('gtype-table').closest('.pd-card').hidden = gRows.length < 2;
-    PD.views = { st, period, tot, daily, cmp, gtypes, all, plats, mixRows, gRows, pRows };
+    PD.views = { st, period, tot, daily, cmp, gtypes, all, plats, mixRows, gRows, pRows, tacRows };
     if (PD.extras) PD.extras(st, period);
   }
 
@@ -429,6 +452,40 @@
         if (tr.children[i]) tr.children[i].hidden = empty;
       });
     });
+  }
+
+  // ---------- channel mix tactic labels + share bar ----------
+  function drawTactics(rows) {
+    const chips = document.getElementById('mix-tacs');
+    const bar = document.getElementById('mix-bar');
+    if (!chips || !bar) return;
+    const pf = d3.format('.0%');
+    const sharePf = (v) => (v < 0.01 && v > 0 ? '<1%' : pf(v));
+    chips.replaceChildren(
+      ...rows.map((r) => {
+        const c = document.createElement('span');
+        c.className = 'pd-tac';
+        c.style.setProperty('--c', r.color);
+        const n = document.createElement('b');
+        n.textContent = r.name;
+        const v = document.createElement('em');
+        v.textContent = sharePf(r.share);
+        c.append(n, v);
+        c.title = `${r.name}: ${nf(r.imp)} impressions (${sharePf(r.share)})`;
+        return c;
+      })
+    );
+    bar.replaceChildren(
+      ...rows.map((r) => {
+        const seg = document.createElement('i');
+        seg.style.background = r.color;
+        seg.style.flexGrow = '0';
+        seg.title = `${r.name}: ${sharePf(r.share)} of impressions`;
+        return seg;
+      })
+    );
+    bar.hidden = !rows.length;
+    requestAnimationFrame(() => requestAnimationFrame(() => [...bar.children].forEach((seg, i) => (seg.style.flexGrow = String(rows[i].share)))));
   }
 
   // ---------- trend chart ----------

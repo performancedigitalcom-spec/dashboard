@@ -246,6 +246,28 @@ body.pd-accounts .team { display: none !important; }
   .pd-def dd { margin: 0; }
   .pd-def .warn { color: #b45309; }
   @media (max-width: 640px) { .pd-def { grid-template-columns: 1fr; } }
+  .pd-tacs { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 12px; }
+  .pd-tac { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--c) 10%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); font-size: 13px; line-height: 1; }
+  .pd-tac::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+  .pd-tac b { font-weight: 700; color: var(--color-fg); }
+  .pd-tac em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--color-fg-muted); font-weight: 600; }
+  .pd-tacbar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; margin-bottom: 16px; background: var(--cds-chart-grid, #eef1f5); }
+  .pd-tacbar[hidden] { display: none !important; }
+  .pd-tacbar i { display: block; min-width: 3px; flex-basis: 0; transition: flex-grow .9s cubic-bezier(.2,.8,.2,1); }
+  .pd-donuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 18px; margin: 4px 0 26px; }
+  .pd-donut { margin: 0; display: grid; grid-template-columns: 190px 1fr; gap: 18px; align-items: center; padding: 16px; border-radius: 16px; background: color-mix(in srgb, var(--pd-blue) 4%, var(--color-panel, #fff)); border: 1px solid var(--color-border-line); }
+  .pd-donut figcaption { grid-column: 1 / -1; font-family: var(--pd-display); font-weight: 700; font-size: 14px; margin-bottom: -6px; }
+  .pd-donut svg { width: 190px; height: 190px; display: block; }
+  .pd-donut .big { font-family: var(--pd-display); font-weight: 800; font-size: 28px; fill: var(--color-fg); }
+  .pd-donut .small { font-size: 11px; fill: var(--color-fg-muted); }
+  .pd-donut ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; font-size: 13px; }
+  .pd-donut li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; opacity: 0; transform: translateX(6px); transition: opacity .4s ease, transform .4s ease; }
+  .pd-donut li.in { opacity: 1; transform: none; }
+  .pd-donut li i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); }
+  .pd-donut li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd-donut li b { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .pd-donut li.dim span, .pd-donut li.dim b { color: var(--color-fg-muted); font-weight: 500; }
+  @media (max-width: 520px) { .pd-donut { grid-template-columns: 1fr; justify-items: center; } }
   .pd-tactic { margin-top: 18px; }
   .pd-tactic:first-of-type { margin-top: 4px; }
   .pd-tactic h4 { margin: 0 0 6px; font-family: var(--pd-display); font-weight: 700; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
@@ -393,7 +415,9 @@ body.pd-accounts .team { display: none !important; }
     </div>
     <div class="pd-card" id="mix">
       <h3>Channel mix</h3>
-      <p class="note">Every platform this client ran on in the time frame.</p>
+      <p class="note">Every tactic this client ran in the time frame, sized by share of impressions.</p>
+      <div class="pd-tacs" id="mix-tacs" data-source="gtypes"></div>
+      <div class="pd-tacbar" id="mix-bar" hidden></div>
       <div class="pd-table-wrap">
         <table class="pd-table" id="mix-table" data-source="totals" data-row-key="k">
           <thead><tr>
@@ -576,6 +600,10 @@ body.pd-accounts .team { display: none !important; }
       <div class="pd-card" style="grid-column: 1 / -1" id="ctv-card" hidden>
         <h3>CTV networks and households</h3>
         <p class="note" id="ctv-note">Where the CTV ads ran and the household income of the homes that saw them, from Illumin by calendar month.</p>
+        <div class="pd-donuts" data-source="ctvmix">
+          <figure class="pd-donut" id="ctv-donut-net"></figure>
+          <figure class="pd-donut" id="ctv-donut-hhi"></figure>
+        </div>
         <div class="pd-ctv" data-source="ctvmix">
           <div>
             <h4>Streaming networks <span id="ctvnet-sub"></span></h4>

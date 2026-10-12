@@ -54,6 +54,40 @@
     return r.status === 'ok' ? r.data : null;
   };
 
+  // animated donut with legend
+  function donut(fig, title, slices, big, small) {
+    if (!fig) return;
+    fig.replaceChildren();
+    const cap = el('figcaption', null, title);
+    const S = 190, R = S / 2, r0 = R * 0.64;
+    const svg = d3.create('svg').attr('viewBox', `0 0 ${S} ${S}`).attr('role', 'img').attr('aria-label', title);
+    const g = svg.append('g').attr('transform', `translate(${R},${R})`);
+    const tot = d3.sum(slices, (d) => d.v) || 1;
+    const pie = d3.pie().value((d) => d.v).sort(null).padAngle(0.012);
+    const arc = d3.arc().innerRadius(r0).outerRadius(R - 2).cornerRadius(3);
+    const arcs = pie(slices);
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    g.selectAll('path').data(arcs).join('path').attr('fill', (d) => d.data.c)
+      .each(function (d) { this._end = d; })
+      .append('title').text((d) => `${d.data.label}: ${p0(d.data.v / tot)}`);
+    const paths = g.selectAll('path');
+    if (reduce) paths.attr('d', arc);
+    else paths.attr('d', (d) => arc({ ...d, endAngle: d.startAngle })).transition().duration(900).delay((d, i) => i * 90).ease(d3.easeCubicOut)
+      .attrTween('d', function (d) { const i = d3.interpolate(d.startAngle, d.endAngle); return (t) => arc({ ...d, endAngle: i(t) }); });
+    g.append('text').attr('class', 'big').attr('text-anchor', 'middle').attr('y', 6).text(big);
+    String(small).split('\n').forEach((t, i) => g.append('text').attr('class', 'small').attr('text-anchor', 'middle').attr('y', 24 + i * 14).text(t));
+    const ul = el('ul');
+    slices.forEach((d, i) => {
+      const li = el('li', d.dim ? 'dim' : null);
+      const sw = el('i');
+      sw.style.setProperty('--c', d.c);
+      li.append(sw, el('span', null, d.label), el('b', null, d.v / tot < 0.01 ? '<1%' : p0(d.v / tot)));
+      ul.append(li);
+      setTimeout(() => li.classList.add('in'), reduce ? 0 : 150 + i * 70);
+    });
+    fig.append(cap, svg.node(), ul);
+  }
+
   PD.extras = function (st, period) {
     const ins = data('insights');
     const pacing = data('pacing');
@@ -320,6 +354,7 @@
       const known = ctvImp - unrep.reduce((a, r) => a + r.imp, 0);
       const HHI = ['Under $25,000', '$25,000-$50,000', '$50,001-$75,000', '$75,001-$100,000', '$100,001-$150,000', '$150,001-$200,000', '$200,001+', 'Unknown'];
       const hhRows = hh.slice().sort((a, b) => HHI.indexOf(a.name) - HHI.indexOf(b.name)).map((r) => ({ ...r, cpm: k1(r), label: r.name.replace(/-/g, ' – ').replace('Unknown', 'Income not known'), muted: r.name === 'Unknown' }));
+      const hhKnownAll = hh.filter((r) => r.name !== 'Unknown').reduce((a, r) => a + r.imp, 0);
       const showPST = single && nets.some((r) => r.p1 || r.p2 || r.p3);
       const netCols = [['label', 'Network'], ['share', 'Share of CTV impressions'], ['imp', 'Impressions'], ['conv', 'Conv.'], ['cpm', 'Conv. per 1K impr.']];
       if (showPST) netCols.push(['p1', 'Primary'], ['p2', 'Secondary'], ['p3', 'Tertiary']);
@@ -360,6 +395,21 @@
           for (const tr of tb.rows) if (tr.children[i]) tr.children[i].hidden = empty;
         });
       };
+      // animated donuts: network share and household income share
+      const NET_C = ['#1B75BC', '#7B3FC4', '#0EA5A4', '#E37400', '#D6336C', '#5B6BD8'];
+      const HHI_C = ['#D6E6F5', '#B0CEEB', '#86B3DE', '#5B97CF', '#357CBE', '#1C62A3', '#0E4880'];
+      const netSlices = [
+        ...named.slice(0, 6).map((r, i) => ({ label: r.name, v: r.imp, c: NET_C[i] })),
+        { label: 'Other networks', v: named.slice(6).reduce((a, r) => a + r.imp, 0) + nets.filter((r) => r.name === '~other').reduce((a, r) => a + r.imp, 0), c: '#9AA9BA', dim: true },
+        { label: 'Not reported', v: unrep.reduce((a, r) => a + r.imp, 0), c: '#DCE3EA', dim: true },
+      ].filter((x) => x.v > 0);
+      const hhSorted = hh.slice().sort((a, b) => HHI.indexOf(a.name) - HHI.indexOf(b.name));
+      const hhSlices = hhSorted.map((r) => ({ label: r.name === 'Unknown' ? 'Income not known' : r.name.replace(/-/g, ' – '), v: r.imp, c: r.name === 'Unknown' ? '#DCE3EA' : HHI_C[HHI.indexOf(r.name)], dim: r.name === 'Unknown' }));
+      const rich = hh.filter((r) => ['$100,001-$150,000', '$150,001-$200,000', '$200,001+'].includes(r.name)).reduce((a, r) => a + r.imp, 0);
+      const compactN = (v) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+      donut(document.getElementById('ctv-donut-net'), 'Share of CTV impressions by network', netSlices, ctvImp ? compactN(ctvImp) : '0', 'CTV impressions');
+      donut(document.getElementById('ctv-donut-hhi'), 'Share of CTV impressions by household income', hhSlices, hhKnownAll ? p0(rich / hhKnownAll) : '—', 'of matched homes\nearn $100K+');
+      out.ctvDonuts = { net: netSlices, hhi: hhSlices, netCenter: [ctvImp ? compactN(ctvImp) : '0', 'CTV impressions'], hhiCenter: [hhKnownAll ? p0(rich / hhKnownAll) : '—', 'of matched homes\nearn $100K+'] };
       draw(document.getElementById('ctvnet-table'), netCols, netRows);
       draw(document.getElementById('hhi-table'), hhCols, hhRows);
       const netSub = ctvImp ? `${nf(named.length)} network${named.length === 1 ? '' : 's'} · ${p0(known / ctvImp)} of impressions named` : '';

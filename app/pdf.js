@@ -182,57 +182,150 @@
   }
 
   function chart(doc, v, colors) {
-    const h = 300;
-    doc.ensure(h + 70);
-    const { ctx } = doc;
-    doc.text('Daily impressions by platform', M, doc.y + 24, { size: 22, weight: '700', font: DISPLAY });
-    doc.y += 40;
+    // small multiples: one stacked bar chart per metric, so the PDF shows everything
+    const sp = v.st.spend;
     const rows = v.daily.filter((r) => r.client === v.st.client && r.d >= v.period.start && r.d <= v.period.end);
     const days = d3.utcDay.range(parse(v.period.start), d3.utcDay.offset(parse(v.period.end), 1)).map((d) => d.toISOString().slice(0, 10));
-    const by = new Map(days.map((d) => [d, Object.fromEntries(PLATS.map((p) => [p, 0]))]));
-    for (const r of rows) if (by.has(r.d)) by.get(r.d)[r.platform] += r.imp;
-    const totals = days.map((d) => PLATS.reduce((s, p) => s + by.get(d)[p], 0));
-    const max = d3.max(totals) || 1;
-    const y = d3.scaleLinear([0, max], [h - 30, 6]).nice();
-    const left = M + 70, right = W - M;
-    const bw = (right - left) / days.length;
-    ctx.strokeStyle = LINE;
-    ctx.lineWidth = 1;
-    for (const t of y.ticks(4)) {
-      const yy = doc.y + y(t);
+    const plats = PLATS.filter((p) => rows.some((r) => r.platform === p && (r.imp || r.clk || r.spend)));
+    const metrics = [['imp', 'Impressions', compact.format], ['clk', 'Clicks', compact.format]];
+    if (rows.some((r) => r.conv)) metrics.push(['conv', 'Conversions', compact.format]);
+    if (sp && rows.some((r) => r.spend)) metrics.push(['spend', 'Investment', (x) => '$' + compact.format(x)]);
+    const gap = 36, cw = (W - 2 * M - gap) / 2, ch = 250;
+    const nRows = Math.ceil(metrics.length / 2);
+    doc.ensure(90 + Math.min(nRows, 1) * (ch + 50));
+    const { ctx } = doc;
+    doc.text('Daily delivery by platform', M, doc.y + 24, { size: 22, weight: '700', font: DISPLAY });
+    // colour key, top right
+    let lx = W - M;
+    const keyItems = plats.slice().reverse();
+    for (const p of keyItems) {
+      ctx.font = `600 16px ${FONT}`;
+      const tw = ctx.measureText(p).width;
+      lx -= tw;
+      doc.text(p, lx, doc.y + 24, { size: 16, weight: '600', color: INK });
+      lx -= 22;
+      ctx.fillStyle = colors[PLATS.indexOf(p)];
       ctx.beginPath();
-      ctx.moveTo(left, yy);
-      ctx.lineTo(right, yy);
-      ctx.stroke();
-      doc.text(compact.format(t), left - 10, yy + 6, { size: 16, color: MUTED, align: 'right' });
+      ctx.roundRect ? ctx.roundRect(lx, doc.y + 11, 14, 14, 3) : ctx.rect(lx, doc.y + 11, 14, 14);
+      ctx.fill();
+      lx -= 24;
     }
-    days.forEach((d, i) => {
-      let base = 0;
-      PLATS.forEach((p, pi) => {
-        const val = by.get(d)[p];
-        if (!val) return;
-        const y0 = doc.y + y(base), y1 = doc.y + y(base + val);
-        ctx.fillStyle = colors[pi];
-        ctx.fillRect(left + i * bw + bw * 0.12, y1, Math.max(1, bw * 0.76), y0 - y1);
-        base += val;
-      });
-    });
-    const step = Math.ceil(days.length / 7);
-    days.forEach((d, i) => {
-      if (i % step) return;
-      doc.text(d3.utcFormat('%b %-d')(parse(d)), left + i * bw + bw / 2, doc.y + h - 6, { size: 16, color: MUTED, align: 'center' });
-    });
-    doc.y += h + 30;
-    let lx = left;
-    PLATS.forEach((p, pi) => {
-      if (!rows.some((r) => r.platform === p && r.imp)) return;
-      ctx.fillStyle = colors[pi];
-      ctx.fillRect(lx, doc.y - 12, 14, 14);
-      lx += 22 + doc.text(p, lx + 22, doc.y, { size: 17, color: MUTED }) + 26;
-    });
-    doc.y += 24;
+    doc.y += 46;
+    for (let k = 0; k < metrics.length; k += 2) {
+      doc.ensure(ch + 50);
+      for (let c = 0; c < 2 && k + c < metrics.length; c++) {
+        const [f, label, fmt] = metrics[k + c];
+        const x0 = M + c * (cw + gap), top = doc.y;
+        const by = new Map(days.map((d) => [d, Object.fromEntries(PLATS.map((p) => [p, 0]))]));
+        for (const r of rows) if (by.has(r.d)) by.get(r.d)[r.platform] += r[f] || 0;
+        const total = d3.sum(rows, (r) => r[f] || 0);
+        ctx.fillStyle = PANEL;
+        ctx.fillRect(x0, top, cw, ch + 30);
+        doc.text(label.toUpperCase(), x0 + 16, top + 28, { size: 14, weight: '700', color: MUTED });
+        doc.text(f === 'spend' ? money0(total) : f === 'conv' ? dec(total) : int(total), x0 + cw - 16, top + 30, { size: 20, weight: '800', font: DISPLAY, align: 'right' });
+        const plotTop = top + 48, plotH = ch - 70, left = x0 + 62, right = x0 + cw - 14;
+        const max = d3.max(days, (d) => PLATS.reduce((a, p) => a + by.get(d)[p], 0)) || 1;
+        const y = d3.scaleLinear([0, max], [plotH, 0]).nice();
+        ctx.strokeStyle = LINE;
+        ctx.lineWidth = 1;
+        for (const t of y.ticks(3)) {
+          const yy = plotTop + y(t);
+          ctx.beginPath();
+          ctx.moveTo(left, yy);
+          ctx.lineTo(right, yy);
+          ctx.stroke();
+          doc.text(fmt(t), left - 8, yy + 5, { size: 13, color: MUTED, align: 'right' });
+        }
+        const bw = (right - left) / days.length;
+        days.forEach((d, i) => {
+          let base = 0;
+          PLATS.forEach((p, pi) => {
+            const val = by.get(d)[p];
+            if (!val) return;
+            const y0 = plotTop + y(base), y1 = plotTop + y(base + val);
+            ctx.fillStyle = colors[pi];
+            ctx.fillRect(left + i * bw + bw * 0.12, y1, Math.max(1, bw * 0.76), y0 - y1);
+            base += val;
+          });
+        });
+        const step = Math.ceil(days.length / 4);
+        days.forEach((d, i) => {
+          if (i % step) return;
+          doc.text(d3.utcFormat('%b %-d')(parse(d)), left + i * bw + bw / 2, plotTop + plotH + 22, { size: 13, color: MUTED, align: 'center' });
+        });
+      }
+      doc.y += ch + 30 + 18;
+    }
+    doc.y += 6;
   }
 
+  function tacticMix(doc, rows) {
+    if (!rows || !rows.length) return;
+    const { ctx } = doc;
+    doc.ensure(120);
+    // labels (chips)
+    let x = M, y = doc.y;
+    for (const r of rows) {
+      const label = r.name, val = r.share < 0.01 ? '<1%' : d3.format('.0%')(r.share);
+      ctx.font = `700 16px ${FONT}`;
+      const w1 = ctx.measureText(label).width;
+      ctx.font = `600 16px ${FONT}`;
+      const w2 = ctx.measureText(val).width;
+      const w = 34 + w1 + 10 + w2 + 16;
+      if (x + w > W - M) { x = M; y += 44; }
+      ctx.fillStyle = r.color + '1F';
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x, y, w, 34, 17) : ctx.rect(x, y, w, 34);
+      ctx.fill();
+      ctx.fillStyle = r.color;
+      ctx.beginPath();
+      ctx.arc(x + 18, y + 17, 6, 0, Math.PI * 2);
+      ctx.fill();
+      doc.text(label, x + 32, y + 23, { size: 16, weight: '700', color: INK });
+      doc.text(val, x + 32 + w1 + 10, y + 23, { size: 16, weight: '600', color: MUTED });
+      x += w + 10;
+    }
+    y += 50;
+    // 100% share bar
+    let bx = M;
+    const bwid = W - 2 * M;
+    for (const r of rows) {
+      const w = Math.max(3, r.share * bwid);
+      ctx.fillStyle = r.color;
+      ctx.fillRect(bx, y, Math.max(1, w - 2), 14);
+      bx += w;
+    }
+    doc.y = y + 32;
+  }
+
+  function donutPdf(doc, x, y, title, slices, center) {
+    const { ctx } = doc;
+    const R = 92, r0 = 60, cx = x + R, cy = y + 44 + R;
+    doc.text(title, x, y + 22, { size: 18, weight: '700', font: DISPLAY });
+    const tot = d3.sum(slices, (d) => d.v) || 1;
+    let a = -Math.PI / 2;
+    for (const s of slices) {
+      const b = a + (s.v / tot) * Math.PI * 2;
+      ctx.fillStyle = s.c;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, a, b);
+      ctx.arc(cx, cy, r0, b, a, true);
+      ctx.closePath();
+      ctx.fill();
+      a = b;
+    }
+    doc.text(center[0], cx, cy + 8, { size: 26, weight: '800', font: DISPLAY, align: 'center' });
+    String(center[1]).split('\n').forEach((t, i) => doc.text(t, cx, cy + 28 + i * 16, { size: 13, color: MUTED, align: 'center' }));
+    let ly = y + 58;
+    const lx = x + 2 * R + 26;
+    for (const s of slices) {
+      ctx.fillStyle = s.c;
+      ctx.fillRect(lx, ly - 12, 14, 14);
+      doc.text(s.label, lx + 22, ly, { size: 15, color: s.dim ? MUTED : INK, maxW: 210 });
+      doc.text(s.v / tot < 0.01 ? '<1%' : d3.format('.0%')(s.v / tot), lx + 300, ly, { size: 15, weight: '700', color: s.dim ? MUTED : INK, align: 'right' });
+      ly += 25;
+    }
+  }
 
   function lines(doc, t, width, size) {
     doc.ctx.font = `${size}px ${FONT}`;
@@ -426,6 +519,14 @@
     } });
     const conv = (f) => (r) => d3.format(',.0f')(r[f] || 0);
     const lab = (r) => r.label + (r.count ? ` (${r.count})` : '');
+    const dn = window.PD.extra && window.PD.extra.ctvDonuts;
+    if (dn) {
+      doc.ensure(300);
+      const half = (W - 2 * M) / 2;
+      donutPdf(doc, M, doc.y, 'CTV impressions by network', dn.net, dn.netCenter);
+      donutPdf(doc, M + half + 10, doc.y, 'CTV impressions by household income', dn.hhi, dn.hhiCenter);
+      doc.y += 44 + 2 * 92 + Math.max(0, Math.max(dn.net.length, dn.hhi.length) * 25 - 2 * 92 + 10) + 24;
+    }
     doc.ensure(200);
     doc.text('CTV streaming networks', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
     doc.text(cx.netSub, W - M, doc.y + 26, { size: 16, color: MUTED, align: 'right' });
@@ -477,6 +578,7 @@
       if (on('mix')) {
       doc.ensure(220);
       heading(doc, 'Channel mix');
+      tacticMix(doc, v.tacRows);
       const mc = [
         { label: 'Platform', w: 0.22, align: 'left', get: (r) => r.platform },
         { label: 'Impressions', w: 0.14, get: (r) => int(r.imp) },
@@ -804,7 +906,7 @@
     const v = window.PD.views, ex = window.PD.extra || {};
     const has = (p) => { const r = v.tot.get(`${v.period.period}|${v.st.client}|${p}`); return r && (r.imp || r.spend); };
     const groups = [
-      ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improve', '“Things to improve” box'], ['daily', 'Daily impressions chart'], ['mix', 'Channel mix'],
+      ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improve', '“Things to improve” box'], ['daily', 'Daily delivery charts'], ['mix', 'Channel mix'],
         ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
       ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
         has('Programmatic') && ['prog', 'Programmatic campaigns']]],
