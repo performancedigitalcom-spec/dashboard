@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Build or refresh the standalone PD Client Performance site (GitHub Pages).
 
-  python3 build_site.py --repo DIR --data DIR --password PW [--page DIR] [--assets DIR]
+  python3 build_site.py --repo DIR --data DIR --key KEY [--password PW] [--firebase APIKEY,PROJECT] [--page DIR] [--assets DIR]
 
 --repo    the cloned GitHub Pages repo (site root)
 --data    folder with campaigns.json, meta_daily.json, google_daily.json, tiktok_daily.json,
           programmatic_daily.json, ga4_daily.json, monthly.json, ads_monthly.json, meta_pixels.json
---password  the team password; every data file is gzipped and encrypted with AES-256-GCM
-          (key from PBKDF2-SHA256), so the public repo never holds readable client data.
+--key     the data key (base64, 32 bytes). Every data file is gzipped and encrypted with it (AES-256-GCM),
+          so the public repo never holds readable client data. Signed-in users get this key from Firestore.
+--password  optional shared team password; the data key is also stored wrapped with it (PBKDF2-SHA256),
+          so the team password keeps working. Leave it out to allow personal logins only.
+--firebase  (full build only) "apiKey,projectId" of the Firebase project that holds the logins.
 --page    (full build only) folder with the dashboard's index.html, calcs.js, render.js, extras.js, pdf.js
 --assets  (full build only) folder with shim.js, pd-display.woff2, pd-text.woff2, mark.png
 Without --page only the data is re-encrypted (the daily refresh).
@@ -38,26 +41,39 @@ body { padding: 28px clamp(16px, 4vw, 48px) 48px; }
 @keyframes pd-skel { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 [hidden] { display: none !important; }
 .pd-gate { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(1200px 600px at 20% 0%, #E6F1FB 0%, #F4F6F9 55%); }
-.pd-gate form { width: min(380px, 100%); background: #fff; border: 1px solid #E3E7ED; border-radius: 20px; padding: 32px 28px 26px; box-shadow: 0 24px 60px -24px rgba(15,23,42,.35); display: flex; flex-direction: column; gap: 14px; font-family: 'PD Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #0F172A; }
+.pd-gate-card { width: min(390px, 100%); background: #fff; border: 1px solid #E3E7ED; border-radius: 20px; padding: 32px 28px 22px; box-shadow: 0 24px 60px -24px rgba(15,23,42,.35); display: flex; flex-direction: column; gap: 10px; font-family: 'PD Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #0F172A; }
 .pd-gate img { width: 190px; align-self: center; margin-bottom: 6px; }
+.pd-gate form { display: flex; flex-direction: column; gap: 12px; }
+.pd-gate .link { text-align: center; font-size: 13px; color: #1B75BC; text-decoration: none; font-weight: 600; }
+.pd-gate .okmsg { min-height: 1.2em; color: #15803D; font-size: 13px; text-align: center; }
+body:not(.pd-accounts) .acct { display: none !important; }
+body.pd-accounts .team { display: none !important; }
+.pd-gate input[type=email] { font: inherit; font-size: 15px; padding: 12px 14px; border: 1px solid #CBD5E1; border-radius: 12px; outline: none; }
+.pd-gate input[type=email]:focus { border-color: #1B75BC; box-shadow: 0 0 0 4px rgba(27,117,188,.15); }
 .pd-gate h1 { margin: 0; text-align: center; font-family: 'PD Display', 'PD Text', -apple-system, 'Segoe UI', Arial, sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
 .pd-gate p { margin: -6px 0 4px; text-align: center; color: #64748B; font-size: 13px; }
 .pd-gate input[type=password] { font: inherit; font-size: 15px; padding: 12px 14px; border: 1px solid #CBD5E1; border-radius: 12px; outline: none; }
 .pd-gate input[type=password]:focus { border-color: #1B75BC; box-shadow: 0 0 0 4px rgba(27,117,188,.15); }
-.pd-gate label { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #475569; }
+.pd-gate label.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #475569; }
 .pd-gate button { font: inherit; font-weight: 700; font-size: 15px; padding: 12px; border: 0; border-radius: 12px; background: #1B75BC; color: #fff; cursor: pointer; }
 .pd-gate button:disabled { opacity: .6; cursor: progress; }
 .pd-gate .err { min-height: 1.2em; color: #C62828; font-size: 13px; text-align: center; margin: -4px 0 0; }
 .pd-foot { max-width: 1320px; margin: 24px auto 0; font-family: 'PD Text', -apple-system, 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #94A3B8; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.pd-foot a { color: #64748B; }
+.pd-foot a { color: #64748B; margin-left: 16px; }
 """
 
 
-def encrypt_all(data_dir, out_dir, password):
+def encrypt_all(data_dir, out_dir, key_b64, password=None):
     os.makedirs(out_dir, exist_ok=True)
-    salt = secrets.token_bytes(16)
-    key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITER).derive(password.encode())
+    key = base64.b64decode(key_b64)
+    assert len(key) == 32, 'the data key must be 32 bytes'
     aes = AESGCM(key)
+    salt = secrets.token_bytes(16)
+    wrapped = None
+    if password:
+        kek = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITER).derive(password.encode())
+        iv = secrets.token_bytes(12)
+        wrapped = base64.b64encode(iv + AESGCM(kek).encrypt(iv, key, None)).decode()
     def put(name, obj):
         iv = secrets.token_bytes(12)
         blob = gzip.compress(json.dumps(obj, separators=(',', ':')).encode(), 9)
@@ -70,12 +86,12 @@ def encrypt_all(data_dir, out_dir, password):
         put(n, obj)
     put('check', {'ok': True})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    json.dump({'salt': base64.b64encode(salt).decode(), 'iterations': ITER, 'version': now.replace(':', ''), 'updated': now, 'latest': latest},
+    json.dump({'salt': base64.b64encode(salt).decode(), 'iterations': ITER, 'wrapped': wrapped, 'version': now.replace(':', ''), 'updated': now, 'latest': latest},
               open(os.path.join(out_dir, 'meta.json'), 'w'))
     return latest
 
 
-def full_build(repo, page, assets):
+def full_build(repo, page, assets, firebase=None):
     os.makedirs(os.path.join(repo, 'app'), exist_ok=True)
     os.makedirs(os.path.join(repo, 'fonts'), exist_ok=True)
     for f in ('calcs.js', 'render.js', 'extras.js', 'pdf.js'):
@@ -83,6 +99,12 @@ def full_build(repo, page, assets):
     open(os.path.join(repo, 'app', 'shim.js'), 'w').write(open(os.path.join(assets, 'shim.js')).read())
     open(os.path.join(repo, 'app', 'fonts.js'), 'w').write(
         "(function(){var s=document.createElement('style');s.textContent=\"@font-face{font-family:'PD Display';font-weight:200 800;font-display:swap;src:url('fonts/pd-display.woff2') format('woff2')}@font-face{font-family:'PD Text';font-weight:100 900;font-display:swap;src:url('fonts/pd-text.woff2') format('woff2')}\";document.head.appendChild(s);})();\n")
+    if firebase:
+        api, pid = [x.strip() for x in firebase.split(',')]
+        cfg = 'window.PD_AUTH = ' + json.dumps({'apiKey': api, 'projectId': pid}) + ';\n'
+    else:
+        cfg = 'window.PD_AUTH = null;\n'
+    open(os.path.join(repo, 'app', 'auth-config.js'), 'w').write(cfg)
     for f in ('pd-display.woff2', 'pd-text.woff2'):
         open(os.path.join(repo, 'fonts', f), 'wb').write(open(os.path.join(assets, f), 'rb').read())
     mark = 'data:image/png;base64,' + base64.b64encode(open(os.path.join(assets, 'mark.png'), 'rb').read()).decode()
@@ -103,28 +125,49 @@ def full_build(repo, page, assets):
 </head>
 <body>
 <div class="pd-gate" id="pd-gate" hidden>
-  <form id="pd-gate-form" autocomplete="on">
+  <div class="pd-gate-card">
     <img src="{logo}" alt="Performance Digital">
-    <h1>Client Performance</h1>
-    <p>Enter the team password to open the dashboard.</p>
-    <input type="text" name="username" value="pd-dashboard" autocomplete="username" hidden>
-    <input type="password" id="pd-gate-pw" autocomplete="current-password" placeholder="Password" required>
-    <label><input type="checkbox" id="pd-gate-remember" checked> Remember me on this device</label>
-    <button type="submit">Open dashboard</button>
+    <form id="pd-v-login" autocomplete="on">
+      <h1>Client Performance</h1>
+      <p class="acct">Sign in with your work email.</p>
+      <p class="team">Enter the team password to open the dashboard.</p>
+      <input class="acct" type="email" id="pd-gate-email" autocomplete="username" placeholder="Work email">
+      <input class="team" type="text" name="username" value="pd-dashboard" autocomplete="username" hidden>
+      <input type="password" id="pd-gate-pw" autocomplete="current-password" placeholder="Password" required>
+      <label class="chk"><input type="checkbox" id="pd-gate-remember" checked> Keep me signed in on this device</label>
+      <button type="submit">Sign in</button>
+      <a href="#" class="acct link" id="pd-link-forgot">Forgot your password?</a>
+    </form>
+    <form id="pd-v-forgot" hidden>
+      <h1>Reset your password</h1>
+      <p>Enter your work email and we’ll send you a link to choose a new password.</p>
+      <input type="email" id="pd-forgot-email" autocomplete="username" placeholder="Work email" required>
+      <button type="submit">Send reset link</button>
+      <a href="#" class="link" id="pd-link-back">Back to sign in</a>
+    </form>
+    <form id="pd-v-change" hidden>
+      <h1>Change your password</h1>
+      <input type="password" id="pd-cur-pw" autocomplete="current-password" placeholder="Current password" required>
+      <input type="password" id="pd-new-pw" autocomplete="new-password" placeholder="New password (8+ characters)" required>
+      <input type="password" id="pd-new-pw2" autocomplete="new-password" placeholder="Repeat new password" required>
+      <button type="submit">Save new password</button>
+      <a href="#" class="link" id="pd-link-cancel">Cancel</a>
+    </form>
     <div class="err" id="pd-gate-err" role="alert"></div>
-  </form>
+    <div class="okmsg" id="pd-gate-ok" role="status"></div>
+  </div>
 </div>
 <div id="dash-root">
 {body}
 </div>
-<div class="pd-foot"><span id="pd-updated"></span><a href="#" id="pd-signout">Sign out on this device</a></div>
+<div class="pd-foot"><span id="pd-updated"></span><span><a href="#" class="acct" id="pd-change">Change password</a><a href="#" id="pd-signout">Sign out</a></span></div>
+<script src="app/auth-config.js"></script>
 <script src="app/shim.js"></script>
 <script src="app/calcs.js"></script>
 <script src="app/render.js"></script>
 <script src="app/extras.js"></script>
 <script src="app/pdf.js"></script>
 <script>
-document.getElementById('pd-signout').addEventListener('click', function (e) {{ e.preventDefault(); try {{ localStorage.removeItem('pd-dash-key'); }} catch (x) {{}} location.reload(); }});
 dash.onData(function () {{ var u = window.PD_UPDATED; if (u) document.getElementById('pd-updated').textContent = 'Data refreshed ' + new Date(u).toLocaleString('en-US', {{ dateStyle: 'medium', timeStyle: 'short' }}); }});
 </script>
 </body>
@@ -137,13 +180,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--repo', required=True)
     ap.add_argument('--data', required=True)
-    ap.add_argument('--password', required=True)
+    ap.add_argument('--key', required=True)
+    ap.add_argument('--password')
+    ap.add_argument('--firebase')
     ap.add_argument('--page')
     ap.add_argument('--assets')
     o = ap.parse_args()
     if o.page:
-        full_build(o.repo, o.page, o.assets)
-    latest = encrypt_all(o.data, os.path.join(o.repo, 'data'), o.password)
+        full_build(o.repo, o.page, o.assets, o.firebase)
+    latest = encrypt_all(o.data, os.path.join(o.repo, 'data'), o.key, o.password)
     print('OK - site data encrypted, latest day', latest)
 
 

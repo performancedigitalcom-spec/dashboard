@@ -387,7 +387,8 @@
     }
   }
 
-  function build() {
+  function build(sel) {
+    const on = (k) => !sel || sel.has(k);
     const v = window.PD.views;
     const sp = v.st.spend;
     const colors = dash.colors.slice(0, 4).map(resolveColor);
@@ -402,10 +403,15 @@
         { label: 'Conversions', value: dec(all.conv), change: chg(all.d_conv) },
       ];
       if (sp) kt.push({ label: 'Investment', value: money0(all.spend), change: chg(all.d_spend) });
-      tiles(doc, kt);
-      storyBlock(doc, window.PD.extra);
-      doc.ensure(420);
-      chart(doc, v, colors);
+      if (on('summary')) {
+        tiles(doc, kt);
+        storyBlock(doc, window.PD.extra);
+      }
+      if (on('daily')) {
+        doc.ensure(420);
+        chart(doc, v, colors);
+      }
+      if (on('mix')) {
       doc.ensure(220);
       heading(doc, 'Channel mix');
       const mc = [
@@ -419,13 +425,19 @@
       if (sp) mc.push({ label: 'Investment', w: 0.12, get: (r) => money0(r.spend) });
       mc.push({ label: 'Impr. vs prior', w: sp ? 0.14 : 0.26, get: (r) => chg(r.d_imp) });
       table(doc, mc, v.mixRows);
+      }
     } else {
       doc.wrap(`${v.st.client} had no paid delivery on Meta, Google Ads, TikTok or programmatic in this time frame.`, M, W - 2 * M, { size: 24 });
     }
 
+    const fresh = () => {
+      if (sel && sel.size < 6) doc.ensure(520);
+      else if (doc.y > M + 260) doc.page();
+    };
     if (all) {
-      pacingBlock(doc, v, window.PD.extra);
-      audVidBlock(doc, window.PD.extra, colors);
+      if (on('pacing')) pacingBlock(doc, v, window.PD.extra);
+      const ex = window.PD.extra || {};
+      if (on('audience') || on('video')) audVidBlock(doc, { ...ex, aud: on('audience') ? ex.aud : null, vid: on('video') ? ex.vid : null }, colors);
     }
 
     const camp = (p) => v.cmp.filter((r) => r.period === v.period.period && r.platform === p && (v.st.client === 'All clients' || r.client === v.st.client)).sort((a, b) => b.imp - a.imp);
@@ -433,8 +445,8 @@
     const sec = (p) => v.tot.get(`${v.period.period}|${v.st.client}|${p}`);
 
     const m = sec('Meta');
-    if (m && (m.imp || m.spend)) {
-      doc.page();
+    if (on('meta') && m && (m.imp || m.spend)) {
+      fresh();
       heading(doc, 'Meta (Facebook & Instagram)', colors[0]);
       const cols = [
         { label: 'Campaign', w: sp ? 0.3 : 0.38, align: 'left', get: name },
@@ -491,8 +503,8 @@
       }
     }
     const g = sec('Google Ads');
-    if (g && (g.imp || g.spend)) {
-      doc.page();
+    if (on('google') && g && (g.imp || g.spend)) {
+      fresh();
       heading(doc, 'Google Ads', colors[1]);
       const tcols = [
         { label: 'Campaign type', w: 0.26, align: 'left', get: (r) => r.channel },
@@ -517,7 +529,7 @@
       table(doc, cols, camp('Google Ads'));
     }
     const t = sec('TikTok');
-    if (t && (t.imp || t.spend)) {
+    if (on('tiktok') && t && (t.imp || t.spend)) {
       doc.ensure(400);
       heading(doc, 'TikTok', colors[2]);
       const cols = [
@@ -549,11 +561,14 @@
       }
     }
     const pr = sec('Programmatic');
-    if (pr && (pr.imp || pr.spend)) {
-      doc.page();
+    const tacsAll = (window.PD.extra && window.PD.extra.tactics) || [];
+    const progOn = on('prog') || on('sizes') || tacsAll.some((x) => on('tac:' + x.tac));
+    if (progOn && pr && (pr.imp || pr.spend)) {
+      fresh();
       heading(doc, 'Programmatic (Illumin)', colors[3]);
       const vcr = (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr));
       doc.y += 10;
+      if (on('prog')) {
       const cc = [
         { label: 'Campaign', w: sp ? 0.32 : 0.42, align: 'left', get: name },
         { label: 'Tactic', w: 0.1, align: 'left', get: (r) => r.channel },
@@ -565,7 +580,8 @@
       ];
       if (sp) cc.push({ label: 'Investment', w: 0.1, get: (r) => money0(r.spend) });
       table(doc, cc.filter((c) => c.label !== 'Completion' || camp('Programmatic').some((r) => r.vcr != null)), camp('Programmatic'));
-      const tacs = (window.PD.extra && window.PD.extra.tactics) || [];
+      }
+      const tacs = tacsAll.filter((x) => on('tac:' + x.tac));
       const FMTS = { name: null, size: (r) => r.size || '—', imp: (r) => int(r.imp), clk: (r) => int(r.clk), ctr: (r) => pct(r.ctr), p100: (r) => int(r.p100), vcr: (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr)), pconv: (r) => dec(r.pconv) };
       for (const t of tacs) {
         doc.ensure(170);
@@ -579,7 +595,7 @@
           : { label: l, w: 0.54 / rest, align: f === 'size' ? 'left' : undefined, get: FMTS[f] })), t.rows);
       }
       const psz = window.PD.extra && window.PD.extra.psizes;
-      if (psz && psz.length) {
+      if (on('sizes') && psz && psz.length) {
         doc.ensure(160);
         doc.text('Display and native by ad size', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
         doc.y += 40;
@@ -595,7 +611,7 @@
       }
     }
     const ga = window.PD.extra && window.PD.extra.ga4;
-    if (ga && (ga.all ? ga.rows.length : ga.total)) {
+    if (on('ga4') && ga && (ga.all ? ga.rows.length : ga.total)) {
       doc.ensure(420);
       heading(doc, 'Website analytics (GA4)', BLUE);
       const fr = (x) => (x == null ? '—' : d3.format('.1%')(x));
@@ -627,9 +643,11 @@
         ], ga.rows);
       }
     }
-    doc.ensure(160);
-    doc.y += 10;
-    doc.wrap(document.getElementById('defs').textContent, M, W - 2 * M, { size: 16, color: MUTED, lh: 1.5 });
+    if (on('summary')) {
+      doc.ensure(160);
+      doc.y += 10;
+      doc.wrap(document.getElementById('defs').textContent, M, W - 2 * M, { size: 16, color: MUTED, lh: 1.5 });
+    }
 
     const n = doc.pages.length;
     doc.pages.forEach((c, i) => {
@@ -712,26 +730,89 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   }
 
-  btn.addEventListener('click', async () => {
+  const menu = document.getElementById('pd-export-menu');
+  const list = document.getElementById('pd-export-list');
+  const go = document.getElementById('pd-export-go');
+  const KEY = 'pd-export-sel';
+  function options() {
+    const v = window.PD.views, ex = window.PD.extra || {};
+    const has = (p) => { const r = v.tot.get(`${v.period.period}|${v.st.client}|${p}`); return r && (r.imp || r.spend); };
+    const groups = [
+      ['Overview', [['summary', 'Headline numbers, story and highlights'], ['daily', 'Daily impressions chart'], ['mix', 'Channel mix'],
+        ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
+      ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
+        has('Programmatic') && ['prog', 'Programmatic campaigns']]],
+      ['Programmatic tactics', [...(ex.tactics || []).map((t) => ['tac:' + t.tac, `${t.label} creatives`]), ex.psizes && ex.psizes.length && ['sizes', 'Display and native by ad size']]],
+      ['Website', [ex.ga4 && (ex.ga4.all ? ex.ga4.rows.length : ex.ga4.total) && ['ga4', 'Website analytics (GA4)']]],
+    ];
+    return groups.map(([g, items]) => [g, items.filter(Boolean)]).filter(([, items]) => items.length);
+  }
+  function fill() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    list.replaceChildren();
+    for (const [g, items] of options()) {
+      const h = document.createElement('div');
+      h.className = 'grp';
+      h.textContent = g;
+      list.append(h);
+      for (const [k, label] of items) {
+        const l = document.createElement('label');
+        const c = document.createElement('input');
+        c.type = 'checkbox';
+        c.value = k;
+        c.checked = !saved || saved[k] !== false;
+        l.append(c, ' ' + label);
+        list.append(l);
+      }
+    }
+  }
+  const boxes = () => [...list.querySelectorAll('input[type=checkbox]')];
+  function setOpen(open) {
+    if (open) fill();
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  }
+  btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
     if (!window.PD || !window.PD.ready || !window.PD.views) return;
-    const label = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Building PDF…';
+    setOpen(menu.hidden);
+  });
+  document.addEventListener('click', (ev) => { if (!menu.hidden && !menu.contains(ev.target) && ev.target !== btn) setOpen(false); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') setOpen(false); });
+  menu.querySelector('[data-all]').addEventListener('click', () => boxes().forEach((b) => (b.checked = true)));
+  menu.querySelector('[data-none]').addEventListener('click', () => boxes().forEach((b) => (b.checked = false)));
+  go.addEventListener('click', async () => {
+    const bs = boxes();
+    const sel = new Set(bs.filter((b) => b.checked).map((b) => b.value));
+    if (!sel.size) return;
+    try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(bs.map((b) => [b.value, b.checked])))); } catch (e) {}
+    const label = go.textContent;
+    go.disabled = true;
+    go.textContent = 'Building PDF…';
     try {
       await new Promise((r) => setTimeout(r, 30));
       try {
         await Promise.all([document.fonts.load("800 40px 'PD Display'"), document.fonts.load("700 20px 'PD Display'"), document.fonts.load("400 18px 'PD Text'"), document.fonts.load("700 18px 'PD Text'")]);
       } catch (e) {}
       const v = window.PD.views;
-      const blob = toPdf(build());
+      const partial = bs.some((b) => !b.checked);
+      const blob = toPdf(build(sel));
       const safe = (s) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
-      await save(blob, `${safe(v.st.client)}_${safe(v.period.label)}_${v.period.end}.pdf`);
-      btn.textContent = label;
+      let part = '';
+      if (partial) {
+        const names = bs.filter((b) => b.checked).map((b) => b.parentElement.textContent.trim().split(' ')[0]);
+        part = '_' + safe(names.length > 2 ? 'selected-sections' : names.join('-'));
+      }
+      await save(blob, `${safe(v.st.client)}_${safe(v.period.label)}_${v.period.end}${part}.pdf`);
+      go.textContent = label;
+      setOpen(false);
     } catch (e) {
-      btn.textContent = 'Export failed — try again';
-      setTimeout(() => (btn.textContent = label), 4000);
+      console.error(e);
+      go.textContent = 'Export failed — try again';
+      setTimeout(() => (go.textContent = label), 4000);
     } finally {
-      btn.disabled = false;
+      go.disabled = false;
     }
   });
 })();
