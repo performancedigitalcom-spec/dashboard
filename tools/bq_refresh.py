@@ -88,4 +88,17 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        for v in ('PD_DATA_KEY', 'GOOGLE_APPLICATION_CREDENTIALS'):
+            if not os.environ.get(v):
+                raise SystemExit(f'{v} is not set')
+        cred = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+        if not (os.path.exists(cred) and os.path.getsize(cred) > 100):
+            raise SystemExit('service-account key (GCP_SA_KEY secret) is empty or missing')
+        main()
+    except BaseException as e:  # surface the reason as a GitHub annotation (no secrets in messages)
+        if isinstance(e, SystemExit) and e.code in (0, None):
+            raise
+        msg = (str(e) or type(e).__name__).replace('\n', ' ')[:900]
+        print(f'::error title=BigQuery refresh failed::{type(e).__name__}: {msg}')
+        sys.exit(1)
