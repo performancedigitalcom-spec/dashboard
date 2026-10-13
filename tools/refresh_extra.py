@@ -40,7 +40,7 @@ UNION ALL
 SELECT 'chan', COUNT(*), STRING_AGG(FORMAT('%t|%s|%s|%d|%d|%d', report_date, pd_client_id, ch, s, e, ke), ';') FROM (
  SELECT report_date, pd_client_id, IFNULL(default_channel_group,'Unassigned') ch, SUM(sessions) s, SUM(engaged_sessions) e, SUM(IFNULL(key_events,0)) ke FROM `pd-client-analytics.client_reporting.ga4_source_medium_daily` WHERE pd_client_id IS NOT NULL GROUP BY 1,2,3)"""
 
-QUERY_CREATIVES = """SELECT 'creatives' k, COUNT(*) n, SUM(v) tv, STRING_AGG(FORMAT('%s|%s|%d|%s|%s|%d|%d|%g|%d', m, pd, cid, REPLACE(name,'|','/'), typ, v, c, cv, vc), '\\n') AS r FROM (
+QUERY_CREATIVES = """SELECT 'creatives' k, COUNT(*) n, SUM(v) tv, STRING_AGG(FORMAT('%s|%s|%d|%s|%s|%d|%d|%g|%d', m, IFNULL(pd,''), cid, REPLACE(IFNULL(name,''),'|','/'), IFNULL(typ,''), IFNULL(v,0), IFNULL(c,0), IFNULL(cv,0), IFNULL(vc,0)), '\\n') AS r FROM (
  SELECT FORMAT_DATE('%Y-%m', date) m, pd_client_id pd, creative_id cid, ANY_VALUE(creative_name) name, ANY_VALUE(creative_type) typ, SUM(views) v, SUM(clicks) c, SUM(IFNULL(conv,0)) cv, SUM(IFNULL(video_complete,0)) vc
  FROM `pd-client-analytics.client_reporting.illumin_creative_breakdown_clean` GROUP BY 1,2,3)"""
 QUERY_CTV = """SELECT 'net' k, COUNT(*) n, STRING_AGG(FORMAT('%s|%s|%s|%d|%d|%g|%g|%g|%g', m, cid, REPLACE(net,'|','/'), v, c, cv, p1, p2, p3), '\\n') r FROM (

@@ -1,0 +1,45 @@
+name: BigQuery refresh (programmatic, GA4, CTV)
+
+# Runs every morning after Claude's 7:49 AM ET refresh, straight from BigQuery with a service
+# account, so warehouse data never depends on a Claude connector staying signed in.
+on:
+  schedule:
+    - cron: '35 12 * * *'   # 8:35 AM EDT / 7:35 AM EST
+    - cron: '35 14 * * *'   # 10:35 AM EDT safety re-run
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install google-cloud-bigquery cryptography
+      - name: Write service-account key
+        run: printf '%s' "$GCP_SA_KEY" > "$RUNNER_TEMP/sa.json"
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      - name: Refresh warehouse data
+        run: python tools/bq_refresh.py --repo .
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+          PD_DATA_KEY: ${{ secrets.PD_DATA_KEY }}
+          PD_TEAM_PASSWORD: ${{ secrets.PD_TEAM_PASSWORD }}
+      - name: Commit and push
+        run: |
+          git config user.name "PD BigQuery refresh"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "BigQuery refresh $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main || true
+          git push origin main
