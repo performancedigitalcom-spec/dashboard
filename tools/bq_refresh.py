@@ -41,7 +41,12 @@ def run_queries(ex, raw_dir):
     client = bigquery.Client(project=PROJECT)
     for fname, q in (('bq_illumin.json', ex.QUERY_ILLUMIN), ('bq_demo.json', ex.QUERY_DEMO), ('bq_ga4.json', ex.QUERY_GA4),
                      ('bq_creatives.json', ex.QUERY_CREATIVES), ('bq_ctv.json', ex.QUERY_CTV)):
-        rows = client.query(q).result()
+        try:
+            rows = client.query(q).result()
+        except Exception as e:  # keep that part's previous data, carry on with the rest
+            msg = str(e).replace('\n', ' ')[:600]
+            print(f'::warning title={fname} skipped::{type(e).__name__}: {msg}')
+            continue
         out = {'jobComplete': True, 'rows': [{'f': [{'v': None if v is None else str(v)} for v in r.values()]} for r in rows]}
         json.dump(out, open(os.path.join(raw_dir, fname), 'w'))
         print('queried', fname, len(out['rows']), 'rows')
@@ -78,6 +83,8 @@ def main():
         if not os.path.exists(os.path.join(out, os.path.basename(f))):
             shutil.copy(f, out)
     # never move backwards
+    if not glob.glob(os.path.join(raw, 'bq_*.json')):
+        sys.exit('no BigQuery answers - site data left unchanged')
     for n in ('programmatic_daily', 'ga4_daily'):
         before, after = latest(os.path.join(data, n + '.json')), latest(os.path.join(out, n + '.json'))
         print(n, 'latest day', before, '->', after)
