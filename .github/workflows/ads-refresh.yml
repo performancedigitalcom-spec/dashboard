@@ -1,0 +1,46 @@
+name: Ad platform refresh (Meta, Google Ads, TikTok)
+
+# Pulls yesterday's (and the past week's) ad data straight from the platform APIs every morning,
+# with permanent API keys stored as repository secrets. No Claude connector or approval involved.
+on:
+  schedule:
+    - cron: '5 11 * * *'    # 7:05 AM EDT / 6:05 AM EST
+    - cron: '5 13 * * *'    # 9:05 AM EDT safety re-run
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography
+      - name: Refresh ad platform data
+        run: python tools/ads_refresh.py --repo .
+        env:
+          PD_DATA_KEY: ${{ secrets.PD_DATA_KEY }}
+          PD_TEAM_PASSWORD: ${{ secrets.PD_TEAM_PASSWORD }}
+          META_TOKEN: ${{ secrets.META_TOKEN }}
+          GADS_DEVELOPER_TOKEN: ${{ secrets.GADS_DEVELOPER_TOKEN }}
+          GADS_CLIENT_ID: ${{ secrets.GADS_CLIENT_ID }}
+          GADS_CLIENT_SECRET: ${{ secrets.GADS_CLIENT_SECRET }}
+          GADS_REFRESH_TOKEN: ${{ secrets.GADS_REFRESH_TOKEN }}
+          TIKTOK_TOKEN: ${{ secrets.TIKTOK_TOKEN }}
+      - name: Commit and push
+        run: |
+          git config user.name "PD ad refresh"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Ad platform refresh $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin main
