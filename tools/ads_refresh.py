@@ -14,8 +14,11 @@ the reason is printed as a GitHub annotation.
 Secrets / environment:
   PD_DATA_KEY, PD_TEAM_PASSWORD                     site encryption (same as the BigQuery job)
   META_TOKEN                                        Meta system-user access token (ads_read)
-  GADS_DEVELOPER_TOKEN, GADS_CLIENT_ID, GADS_CLIENT_SECRET, GADS_REFRESH_TOKEN
-                                                    Google Ads API (manager login 3978171358)
+  GADS_SA_KEY (service-account JSON, preferred) or GADS_CLIENT_ID + GADS_CLIENT_SECRET + GADS_REFRESH_TOKEN
+                                                    Google Ads API (manager login 3978171358). Google no longer
+                                                    needs a developer token; GADS_DEVELOPER_TOKEN is sent only if set.
+                                                    Access level comes from the Cloud project that owns the
+                                                    credentials (pd-client-analytics, Explorer access or higher).
   TIKTOK_TOKEN                                      TikTok for Business long-term access token
 """
 import argparse, base64, datetime, glob, gzip, importlib.util, json, os, shutil, subprocess, sys, tempfile, time
@@ -28,7 +31,7 @@ META_API = 'https://graph.facebook.com/' + os.environ.get('META_API_VERSION', 'v
 GADS_LOGIN = '3978171358'
 GADS_CUSTOMERS = ['1617465645', '2297433325', '3759382237', '5323277935', '5696694303', '5794801121',
                   '6720136131', '7016721023', '8220148603', '8416419143', '9131703505']
-GADS_VERSIONS = [os.environ.get('GADS_API_VERSION', 'v24'), 'v23', 'v22', 'v21']
+GADS_VERSIONS = [v for v in [os.environ.get('GADS_API_VERSION'), 'v27', 'v26', 'v25', 'v24', 'v23', 'v22'] if v]
 TIKTOK_ADVERTISERS = ['7140363181553205250', '7283126073947127809', '7288330476199149570']
 TIKTOK_API = 'https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/'
 
@@ -103,17 +106,35 @@ def meta(raw, S, E, months, today, pixels):
 
 
 # ---------------- Google Ads ----------------
+def b64u(b):
+    return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+
+
 def gads_token():
-    d = http('https://oauth2.googleapis.com/token', urllib.parse.urlencode({
-        'client_id': os.environ['GADS_CLIENT_ID'], 'client_secret': os.environ['GADS_CLIENT_SECRET'],
-        'refresh_token': os.environ['GADS_REFRESH_TOKEN'], 'grant_type': 'refresh_token'}).encode(),
-        {'Content-Type': 'application/x-www-form-urlencoded'})
+    sa = os.environ.get('GADS_SA_KEY', '').strip()
+    if sa:  # service account added as a user in the Google Ads manager account
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        k = json.loads(sa)
+        now = int(time.time())
+        head = b64u(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode())
+        body = b64u(json.dumps({'iss': k['client_email'], 'scope': 'https://www.googleapis.com/auth/adwords',
+                                'aud': 'https://oauth2.googleapis.com/token', 'iat': now, 'exp': now + 3600}).encode())
+        key = serialization.load_pem_private_key(k['private_key'].encode(), None)
+        sig = b64u(key.sign(f'{head}.{body}'.encode(), padding.PKCS1v15(), hashes.SHA256()))
+        form = {'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer', 'assertion': f'{head}.{body}.{sig}'}
+    else:
+        form = {'client_id': os.environ['GADS_CLIENT_ID'], 'client_secret': os.environ['GADS_CLIENT_SECRET'],
+                'refresh_token': os.environ['GADS_REFRESH_TOKEN'], 'grant_type': 'refresh_token'}
+    d = http('https://oauth2.googleapis.com/token', urllib.parse.urlencode(form).encode(),
+             {'Content-Type': 'application/x-www-form-urlencoded'})
     return d['access_token']
 
 
 def gads_query(tok, cust, q, ver):
-    h = {'Authorization': 'Bearer ' + tok, 'developer-token': os.environ['GADS_DEVELOPER_TOKEN'], 'login-customer-id': GADS_LOGIN,
-         'Content-Type': 'application/json'}
+    h = {'Authorization': 'Bearer ' + tok, 'login-customer-id': GADS_LOGIN, 'Content-Type': 'application/json'}
+    if os.environ.get('GADS_DEVELOPER_TOKEN'):
+        h['developer-token'] = os.environ['GADS_DEVELOPER_TOKEN']
     out = []
     for chunk in http(f'https://googleads.googleapis.com/{ver}/customers/{cust}/googleAds:searchStream', {'query': q}, h):
         out.extend(chunk.get('results', []))
@@ -243,9 +264,9 @@ def main():
         done = ['raw']
     else:
         for name, fn, need in (('Meta', lambda: meta(raw, S, E, months, today, list(ex.PIXEL_CLIENT)), ['META_TOKEN']),
-                               ('Google Ads', lambda: google(raw, S, E, months), ['GADS_DEVELOPER_TOKEN', 'GADS_CLIENT_ID', 'GADS_CLIENT_SECRET', 'GADS_REFRESH_TOKEN']),
+                               ('Google Ads', lambda: google(raw, S, E, months), ['GADS_SA_KEY'] if os.environ.get('GADS_SA_KEY') else ['GADS_SA_KEY (or GADS_CLIENT_ID + GADS_CLIENT_SECRET + GADS_REFRESH_TOKEN)']),
                                ('TikTok', lambda: tiktok(raw, S, E, months), ['TIKTOK_TOKEN'])):
-            missing = [v for v in need if not os.environ.get(v)]
+            missing = [v for v in need if not os.environ.get(v.split(' ')[0])]
             if missing:
                 warn(f'{name} skipped', 'secret(s) not set yet: ' + ', '.join(missing))
                 continue

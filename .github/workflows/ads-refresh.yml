@@ -30,6 +30,7 @@ jobs:
           PD_DATA_KEY: ${{ secrets.PD_DATA_KEY }}
           PD_TEAM_PASSWORD: ${{ secrets.PD_TEAM_PASSWORD }}
           META_TOKEN: ${{ secrets.META_TOKEN }}
+          GADS_SA_KEY: ${{ secrets.GCP_SA_KEY }}   # same service account as the BigQuery job
           GADS_DEVELOPER_TOKEN: ${{ secrets.GADS_DEVELOPER_TOKEN }}
           GADS_CLIENT_ID: ${{ secrets.GADS_CLIENT_ID }}
           GADS_CLIENT_SECRET: ${{ secrets.GADS_CLIENT_SECRET }}
