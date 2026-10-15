@@ -92,17 +92,23 @@ def meta(raw, S, E, months, today, pixels):
     for a, b in months:
         save(raw, f'meta_ads_{a[:7]}.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='ad', time_increment='monthly', time_range=rng(a, b),
              fields='ad_id,ad_name,campaign_id,campaign_name,impressions,inline_link_clicks,spend,actions,video_thruplay_watched_actions,video_p100_watched_actions')))
+    bad = []
     try:
         save(raw, 'meta_pixels_list.json', meta_get(f'{META_ACCOUNT}/adspixels', {'fields': 'id,name,last_fired_time'}))
-        t0 = (today - datetime.timedelta(days=28)).isoformat()
-        for pid in pixels:
+    except Exception as e:
+        bad.append(f'pixel list ({META_ACCOUNT}/adspixels): {e}')
+    t0 = (today - datetime.timedelta(days=28)).isoformat()
+    for pid in pixels:
+        try:
             d = http(f'{META_API}/{pid}/stats?' + urllib.parse.urlencode({'aggregation': 'event_total_counts', 'start_time': f'{t0}T00:00:00-0500',
                      'end_time': f'{today.isoformat()}T00:00:00-0500', 'access_token': os.environ['META_TOKEN']}))
             save(raw, f'meta_pixel_{pid}.json', d)
-    except Exception as e:
+        except Exception as e:
+            bad.append(f'pixel {pid} ({pixels[pid]}): {str(e)[:80]}')
+    if bad:  # all-or-nothing: the pixel table is rebuilt as a whole, so keep the previous one
         for f in glob.glob(os.path.join(raw, 'meta_pixel*.json')):
             os.remove(f)
-        warn('Meta pixels skipped', e)
+        warn(f'Meta pixels skipped ({len(bad)} of {len(pixels) + 1} calls failed)', ' || '.join(bad))
 
 
 # ---------------- Google Ads ----------------
@@ -263,7 +269,7 @@ def main():
             shutil.copy(f, raw)
         done = ['raw']
     else:
-        for name, fn, need in (('Meta', lambda: meta(raw, S, E, months, today, list(ex.PIXEL_CLIENT)), ['META_TOKEN']),
+        for name, fn, need in (('Meta', lambda: meta(raw, S, E, months, today, dict(ex.PIXEL_CLIENT)), ['META_TOKEN']),
                                ('Google Ads', lambda: google(raw, S, E, months), ['GADS_SA_KEY'] if os.environ.get('GADS_SA_KEY') else ['GADS_SA_KEY (or GADS_CLIENT_ID + GADS_CLIENT_SECRET + GADS_REFRESH_TOKEN)']),
                                ('TikTok', lambda: tiktok(raw, S, E, months), ['TIKTOK_TOKEN'])):
             missing = [v for v in need if not os.environ.get(v.split(' ')[0])]
