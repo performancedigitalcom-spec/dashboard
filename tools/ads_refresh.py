@@ -240,7 +240,9 @@ def run(script, *args):
     r = subprocess.run([sys.executable, '-I', os.path.join(HERE, script), *args], capture_output=True, text=True)
     print(r.stdout, r.stderr)
     if r.returncode != 0:
-        raise SystemExit(f'{script} refused the data (see log) - site data left unchanged')
+        import re
+        lines = [re.sub(r'\$[\d.,]+', '$-', l.strip(' -')) for l in r.stdout.splitlines() if l.startswith(' - ')]
+        raise SystemExit(f'{script} refused the data - site data left unchanged: ' + ' || '.join(lines[:8]))
 
 
 def main():
