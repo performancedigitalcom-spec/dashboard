@@ -28,7 +28,7 @@ import argparse, glob, json, os, re, sys, collections
 QUERY_ILLUMIN = """SELECT 'camps' m, COUNT(*) n, TO_JSON_STRING(ARRAY_AGG(STRUCT(pd_client_id AS pd, advertiser AS adv, campaign_id AS cid, campaign_name AS name, days, vs, imp))) AS r FROM (
  SELECT pd_client_id, advertiser, campaign_id, campaign_name, COUNT(*) days, SUM(video_start) vs, SUM(impressions) imp FROM `pd-client-analytics.client_reporting.illumin_campaign_daily_dashboard` GROUP BY 1,2,3,4)
 UNION ALL
-SELECT FORMAT_DATE('%Y-%m', date), COUNT(*), STRING_AGG(FORMAT('%s,%s,%d,%d,%.2f,%g,%g,%d,%d,%d,%d,%d', FORMAT_DATE('%d',date), campaign_id, IFNULL(impressions,0), IFNULL(clicks,0), IFNULL(spend,0), IFNULL(conversions,0), IFNULL(primary_conv,0), IFNULL(video_start,0), IFNULL(video_first_quartile,0), IFNULL(video_midpoint,0), IFNULL(video_third_quartile,0), IFNULL(video_complete,0)), ';' ORDER BY date, campaign_id)
+SELECT FORMAT_DATE('%Y-%m', date), COUNT(*), STRING_AGG(FORMAT('%s,%s,%d,%d,%.2f,%g,%g,%d,%d,%d,%d,%d,%g,%g,%g,%g', FORMAT_DATE('%d',date), campaign_id, IFNULL(impressions,0), IFNULL(clicks,0), IFNULL(spend,0), IFNULL(conversions,0), IFNULL(primary_conv,0), IFNULL(video_start,0), IFNULL(video_first_quartile,0), IFNULL(video_midpoint,0), IFNULL(video_third_quartile,0), IFNULL(video_complete,0), IFNULL(secondary_conv,0), IFNULL(tertiary_conv,0), IFNULL(cconv,0), IFNULL(avconv,0)), ';' ORDER BY date, campaign_id)
 FROM `pd-client-analytics.client_reporting.illumin_campaign_daily_dashboard` GROUP BY 1"""
 QUERY_DEMO = """SELECT 'age' kind, STRING_AGG(FORMAT('%s|%s|%s|%d|%d', m, campaign_id, b, imp, clk), ';') AS r, COUNT(*) n FROM (
   SELECT FORMAT_DATE('%Y-%m', date) m, campaign_id, age_range b, SUM(views) imp, SUM(clicks) clk FROM `pd-client-analytics.client_reporting.illumin_age_daily_clean` GROUP BY 1,2,3)
@@ -182,11 +182,16 @@ def main():
             if int(f[1]) != len(rr):
                 problems.append(f'Illumin {m}: {len(rr)} rows but BigQuery counted {f[1]}')
             for x in rr:
-                dd, cid, imp, clk, sp, conv, pconv, vs, a, b, c, d = x.split(',')
-                if int(imp) == 0 and float(sp) == 0:
+                f12 = x.split(',')
+                dd, cid, imp, clk, sp, conv, pconv, vs, a, b, c, d = f12[:12]
+                p2, p3, cc, av = (float(v) for v in (f12[12:16] if len(f12) >= 16 else (0, 0, 0, 0)))
+                if int(imp) == 0 and float(sp) == 0 and float(conv) == 0:
                     continue
-                daily.append(dict(d=f'{m}-{dd}', cid=cid, imp=int(imp), clk=int(clk), spend=float(sp), conv=float(conv), pconv=float(pconv),
-                                  vs=int(vs), v25=int(a), v50=int(b), v75=int(c), v100=int(d)))
+                row = dict(d=f'{m}-{dd}', cid=cid, imp=int(imp), clk=int(clk), spend=float(sp), conv=float(conv), pconv=float(pconv),
+                           vs=int(vs), v25=int(a), v50=int(b), v75=int(c), v100=int(d))
+                if len(f12) >= 16:  # Primary = pconv; Secondary, Tertiary; after a click / after only seeing an ad
+                    row.update(p2=p2, p3=p3, cc=cc, av=av)
+                daily.append(row)
         daily.sort(key=lambda r: (r['d'], r['cid']))
         out['programmatic_daily'] = daily
         monthly = [r for r in monthly if not (r['platform'] == 'Programmatic' and r['kind'] == 'video')]
