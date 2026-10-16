@@ -54,6 +54,11 @@ SELECT 'hhi', COUNT(*), STRING_AGG(FORMAT('%s|%s|%s|%d|%d|%g|%g|%g|%g', m, cid, 
  SELECT FORMAT_DATE('%Y-%m', date) m, campaign_id cid, IFNULL(NULLIF(TRIM(household_income), ''), 'Unknown') b, SUM(IFNULL(views,0)) v, SUM(IFNULL(clicks,0)) c, SUM(IFNULL(conversions,0)) cv, SUM(IFNULL(primary_conv,0)) p1, SUM(IFNULL(secondary_conv,0)) p2, SUM(IFNULL(tertiary_conv,0)) p3
  FROM `pd-client-analytics.client_reporting.illumin_household_income_daily_clean` GROUP BY 1,2,3 HAVING v > 0)
 UNION ALL
+SELECT 'nall', COUNT(*), STRING_AGG(FORMAT('%s|%s|%s|%d|%d|%g', m, cid, REPLACE(net,'|','/'), v, c, cv), '\\n') FROM (
+ SELECT FORMAT_DATE('%Y-%m', date) m, campaign_id cid, MIN(TRIM(ctv_network)) net, SUM(IFNULL(views,0)) v, SUM(IFNULL(clicks,0)) c, SUM(IFNULL(conversions,0)) cv
+ FROM `pd-client-analytics.client_reporting.illumin_ctv_network_daily_clean` WHERE TRIM(IFNULL(ctv_network, '')) != ''
+ GROUP BY 1, 2, LOWER(REGEXP_REPLACE(TRIM(ctv_network), r'[^A-Za-z0-9+&]+', '')) HAVING v > 0)
+UNION ALL
 SELECT 'jmap', COUNT(*), STRING_AGG(FORMAT('%s|%s|%s', cid, j, REPLACE(jn,'|','/')), '\\n') FROM (
  SELECT campaign_id cid, ANY_VALUE(journey_id) j, ANY_VALUE(journey_name) jn FROM `pd-client-analytics.client_reporting.illumin_ctv_network_daily_clean` GROUP BY 1)
 UNION ALL
@@ -266,6 +271,33 @@ def main():
                 if a[0]:
                     monthly.append(dict(platform='Programmatic', cid=cid, m=m, kind=kind, b=b, imp=a[0], clk=a[1], conv=a[2], p1=a[3], p2=a[4], p3=a[5]))
             report.append(f'CTV {key}: {len(acc)} rows')
+        # full network list (every named network, variants merged) - kept as compact per campaign-month lists
+        if R.get('nall'):
+            lines = [x for x in (R['nall'][2] or '').split('\n') if x]
+            if int(R['nall'][1]) != len(lines):
+                problems.append(f'CTV full network list: {len(lines)} rows but BigQuery counted {R["nall"][1]}')
+            else:
+                key = lambda n: re.sub(r'[^a-z0-9+&]+', '', n.lower())
+                best = {}  # merged key -> (impressions, display name)
+                acc = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0, 0.0]))
+                for x in lines:
+                    m, cid, b, v, c, cv = x.split('|')
+                    if chan.get(cid, 'CTV') != 'CTV':
+                        continue
+                    nm = net_name(b)
+                    if not nm or nm == '~other':
+                        continue
+                    k = key(nm)
+                    if best.get(k, (-1,))[0] < int(v):
+                        best[k] = (int(v), nm)
+                    a = acc[(m, cid)][k]
+                    a[0] += int(v); a[1] += int(c); a[2] += float(cv)
+                monthly = [r for r in monthly if not (r['platform'] == 'Programmatic' and r['kind'] == 'ctvall')]
+                for (m, cid), nets in acc.items():
+                    items = sorted(nets.items(), key=lambda kv: -kv[1][0])
+                    monthly.append(dict(platform='Programmatic', cid=cid, m=m, kind='ctvall', b='', n=[best[k][1] for k, _ in items],
+                                        v=[a[0] for _, a in items], c=[a[1] for _, a in items], cv=[round(a[2], 2) for _, a in items]))
+                report.append(f'CTV full network list: {len(best)} networks')
         for x in (R['jmap'][2] or '').split('\n') if R.get('jmap') else []:
             if x:
                 cid, j, jn = x.split('|', 2)
