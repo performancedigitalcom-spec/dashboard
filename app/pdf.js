@@ -575,6 +575,25 @@
     const tw = nc.reduce((a, c) => a + c.w, 0);
     nc = nc.map((c) => ({ ...c, w: c.w / tw }));
     table(doc, nc, cx.nets);
+    const na = window.PD.extra && window.PD.extra.netAll;
+    if (na && na.list.length > 12) {
+      // more networks, in three compact columns (rank, name, impressions)
+      const inTop = new Set(cx.nets.map((r) => r.label));
+      const list = na.list.filter((r) => !inTop.has(r[0])).slice(0, 27);
+      doc.ensure(90);
+      doc.text(`More networks · ${int(na.count)} named in total`, M, doc.y + 30, { size: 17, weight: '700' });
+      doc.y += 44;
+      const cols = 3, cw = (W - 2 * M) / cols, rows = Math.ceil(list.length / cols), rh = 25;
+      doc.ensure(rows * rh + 20);
+      list.forEach(([name, imp], i) => {
+        const cx0 = M + Math.floor(i / rows) * cw, y = doc.y + (i % rows) * rh + 16;
+        doc.text(`${i + 13}.`, cx0, y, { size: 13.5, color: MUTED });
+        doc.text(name, cx0 + 34, y, { size: 14.5, maxW: cw - 150 });
+        doc.text(int(imp), cx0 + cw - 20, y, { size: 14.5, color: MUTED, align: 'right' });
+      });
+      doc.y += rows * rh + 14;
+      if (na.count > 12 + list.length) { doc.text(`Plus ${int(na.count - 12 - list.length)} more networks with smaller delivery. The full list is on the dashboard.`, M, doc.y + 8, { size: 14, color: MUTED }); doc.y += 26; }
+    }
     doc.ensure(200);
     doc.text('CTV households by income', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
     doc.text(cx.hhSub, W - M, doc.y + 26, { size: 16, color: MUTED, align: 'right' });

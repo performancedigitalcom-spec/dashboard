@@ -333,6 +333,7 @@
       const nets = mine.filter((r) => r.kind === 'net');
       const hh = mine.filter((r) => r.kind === 'hhi');
       const defs = mine.filter((r) => r.kind === 'def');
+      const ctvTot = nets.reduce((a, r) => a + r.imp, 0);
       const single = st.client !== 'All clients';
       card.hidden = !nets.length && !hh.length;
       const sum = (list) => {
@@ -342,12 +343,33 @@
         o.cpm = o.imp ? (o.conv / o.imp) * 1000 : null;
         return o;
       };
-      const named = nets.filter((r) => r.name && r.name !== '~other').sort((a, b) => b.imp - a.imp);
+      const naRow = mine.find((r) => r.kind === 'netall');
+      let named = nets.filter((r) => r.name && r.name !== '~other').sort((a, b) => b.imp - a.imp);
+      let otherCapped = nets.filter((r) => r.name === '~other');
+      if (naRow && naRow.list.length) {
+        // rank from the full list (every named network); Primary/Secondary/Tertiary come from the per-network rows
+        const pst = new Map(named.map((r) => [r.name, r]));
+        named = naRow.list.map(([name, imp, clk, conv]) => {
+          const q = pst.get(name);
+          return { name, imp, clk, conv, p1: q ? q.p1 : 0, p2: q ? q.p2 : 0, p3: q ? q.p3 : 0, share: ctvTot ? imp / ctvTot : 0 };
+        });
+        otherCapped = [];
+      }
       const TOP = 12;
       const k1 = (r) => (r.imp ? (r.conv / r.imp) * 1000 : null);
       const netRows = named.slice(0, TOP).map((r) => ({ ...r, cpm: k1(r), label: r.name }));
-      const rest = [...named.slice(TOP), ...nets.filter((r) => r.name === '~other')];
-      if (rest.length) netRows.push({ ...sum(rest), label: 'All other networks', muted: true, count: named.length - Math.min(TOP, named.length) });
+      const rest = [...named.slice(TOP), ...otherCapped];
+      if (rest.length) {
+        const o = { ...sum(rest), label: 'All other networks', muted: true, count: named.length - Math.min(TOP, named.length) };
+        if (naRow && naRow.list.length) {
+          // the per-network type split only covers the bigger networks: take the remainder from the named total
+          for (const f of ['p1', 'p2', 'p3']) {
+            const all = nets.filter((r) => r.name).reduce((a, r) => a + (r[f] || 0), 0);
+            o[f] = Math.max(0, all - named.slice(0, TOP).reduce((a, r) => a + (r[f] || 0), 0));
+          }
+        }
+        netRows.push(o);
+      }
       const unrep = nets.filter((r) => !r.name);
       if (unrep.length) netRows.push({ ...sum(unrep), label: 'Network not reported', muted: true });
       const ctvImp = nets.reduce((a, r) => a + r.imp, 0);
@@ -400,7 +422,7 @@
       const HHI_C = ['#D6E6F5', '#B0CEEB', '#86B3DE', '#5B97CF', '#357CBE', '#1C62A3', '#0E4880'];
       const netSlices = [
         ...named.slice(0, 6).map((r, i) => ({ label: r.name, v: r.imp, c: NET_C[i] })),
-        { label: 'Other networks', v: named.slice(6).reduce((a, r) => a + r.imp, 0) + nets.filter((r) => r.name === '~other').reduce((a, r) => a + r.imp, 0), c: '#9AA9BA', dim: true },
+        { label: 'Other networks', v: named.slice(6).reduce((a, r) => a + r.imp, 0) + otherCapped.reduce((a, r) => a + r.imp, 0), c: '#9AA9BA', dim: true },
         { label: 'Not reported', v: unrep.reduce((a, r) => a + r.imp, 0), c: '#DCE3EA', dim: true },
       ].filter((x) => x.v > 0);
       const hhSorted = hh.slice().sort((a, b) => HHI.indexOf(a.name) - HHI.indexOf(b.name));
@@ -411,6 +433,39 @@
       donut(document.getElementById('ctv-donut-hhi'), 'Share of CTV impressions by household income', hhSlices, hhKnownAll ? p0(rich / hhKnownAll) : '—', 'of matched homes\nearn $100K+');
       out.ctvDonuts = { net: netSlices, hhi: hhSlices, netCenter: [ctvImp ? compactN(ctvImp) : '0', 'CTV impressions'], hhiCenter: [hhKnownAll ? p0(rich / hhKnownAll) : '—', 'of matched homes\nearn $100K+'] };
       draw(document.getElementById('ctvnet-table'), netCols, netRows);
+      // full network list with search
+      const na = mine.find((r) => r.kind === 'netall');
+      const allBox = document.getElementById('ctvall');
+      allBox.hidden = !na || !na.list.length;
+      out.netAll = null;
+      if (na && na.list.length) {
+        const q = document.getElementById('ctvall-q'), more = document.getElementById('ctvall-more'), cnt = document.getElementById('ctvall-count');
+        const tb = document.querySelector('#ctvall-table tbody');
+        const named = na.list.reduce((a, r) => a + r[1], 0);
+        document.getElementById('ctvall-sub').textContent = `${nf(na.count)} network${na.count === 1 ? '' : 's'}`;
+        let shown = 50;
+        const paint = () => {
+          const term = q.value.trim().toLowerCase();
+          const rows = na.list.map((r, i) => [i + 1, ...r]).filter((r) => !term || r[1].toLowerCase().includes(term));
+          tb.replaceChildren();
+          for (const [rank, name, imp, clk, conv] of rows.slice(0, shown)) {
+            const tr = el('tr');
+            const sh = ctvImp ? imp / ctvImp : 0;
+            const td = el('td', 'bar txt');
+            td.append(bar(sh), el('em', null, sh > 0 && sh < 0.005 ? '<1%' : p0(sh)));
+            tr.append(el('td', null, String(rank)), el('td', null, name), td, el('td', null, nf(imp)), el('td', null, nf(clk)), el('td', null, d3.format(',.0f')(conv || 0)));
+            tb.append(tr);
+          }
+          cnt.textContent = term ? `${nf(rows.length)} match${rows.length === 1 ? '' : 'es'}` : `Named networks carried ${p0(named / (ctvImp || 1))} of CTV impressions`;
+          more.hidden = rows.length <= shown;
+          more.textContent = `Show ${rows.length - shown > 200 ? 'next 200' : 'all ' + nf(rows.length)}`;
+        };
+        q.value = '';
+        q.oninput = () => { shown = 50; paint(); };
+        more.onclick = () => { shown += 200; paint(); };
+        paint();
+        out.netAll = { count: na.count, list: na.list.slice(0, 60), named, ctvImp };
+      }
       draw(document.getElementById('hhi-table'), hhCols, hhRows);
       const netSub = ctvImp ? `${nf(named.length)} network${named.length === 1 ? '' : 's'} · ${p0(known / ctvImp)} of impressions named` : '';
       document.getElementById('ctvnet-sub').textContent = netSub;

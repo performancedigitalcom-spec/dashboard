@@ -774,7 +774,7 @@ dash.calc('psizes', {
 
 dash.calc('ctvmix', {
   title: 'CTV networks, household income and conversion definitions',
-  description: 'CTV impressions, clicks and conversions by streaming network and by household income for each client and period, from the programmatic platform by calendar month (a time frame counts every month it touches). Also lists what Primary, Secondary and Tertiary conversions meant for each client’s programmatic journeys (all tactics) in the period, with how many of each happened under each definition (date-aware, from daily programmatic rows), and a per-client total split by type and by click vs view-through.',
+  description: 'CTV impressions, clicks and conversions by streaming network and by household income for each client and period (plus the full list of every named network, variants merged), from the programmatic platform by calendar month (a time frame counts every month it touches). Also lists what Primary, Secondary and Tertiary conversions meant for each client’s programmatic journeys (all tactics) in the period, with how many of each happened under each definition (date-aware, from daily programmatic rows), and a per-client total split by type and by click vs view-through.',
   inputs: ['campaigns', 'monthly', 'programmatic_daily', 'periods'],
   fn: (campaigns, monthly, programmatic_daily, periods) => {
     const info = {};
@@ -806,6 +806,26 @@ dash.calc('ctvmix', {
           o.p2 += r.p2 || 0;
           o.p3 += r.p3 || 0;
         }
+      }
+      // full network list (every named network the CTV ads ran on, variants merged)
+      const full = new Map(); // client -> Map(name -> [imp, clk, conv])
+      for (const r of monthly) {
+        if (r.kind !== 'ctvall' || r.m < m0 || r.m > m1) continue;
+        const c = info[r.cid];
+        if (!c || c.channel !== 'CTV') continue;
+        for (const client of [c.client, 'All clients']) {
+          if (!full.has(client)) full.set(client, new Map());
+          const f = full.get(client);
+          r.n.forEach((name, i) => {
+            const a = f.get(name) || [0, 0, 0];
+            a[0] += r.v[i]; a[1] += r.c[i]; a[2] += r.cv[i];
+            f.set(name, a);
+          });
+        }
+      }
+      for (const [client, f] of full) {
+        const list = [...f.entries()].sort((a, b) => b[1][0] - a[1][0]).map(([name, a]) => [name, a[0], a[1], Math.round(a[2] * 100) / 100]);
+        rows.push({ k: [p.period, client, 'netall'].join('|'), period: p.period, client, kind: 'netall', name: '', count: list.length, list });
       }
       const tot = new Map();
       for (const o of acc.values()) {
