@@ -873,3 +873,100 @@ dash.calc('ctvmix', {
     return rows;
   },
 });
+
+dash.calc('tacperf', {
+  title: 'Performance vs. market, by platform and tactic',
+  description: 'For each client, time frame and section (Meta, TikTok, each Google Ads campaign type, each programmatic tactic): delivery, click-through rate against the market benchmark (Meta 1.71%, TikTok 0.84%, Google search 6.66%, YouTube 0.65% from WordStream; programmatic display 0.10%, native 0.20%, CTV 0.03% from Focus Digital / Gourmet Ads), video completion for CTV against the ~92% industry average (AdWave) and audio listen-through against ~94% (Next Broadcast Media), and the change against the period before. Each note is tagged good, neutral or flag; flags are shown on the live dashboard only.',
+  inputs: ['campaigns', 'meta_daily', 'google_daily', 'tiktok_daily', 'programmatic_daily', 'periods'],
+  fn: (campaigns, meta_daily, google_daily, tiktok_daily, programmatic_daily, periods) => {
+    const info = {};
+    for (const c of campaigns) info[c.platform + '|' + c.campaign_id] = c;
+    const BENCH = { Meta: [0.0171, 'Meta'], TikTok: [0.0084, 'TikTok'], 'Google Ads|Search': [0.0666, 'Google search'], 'Google Ads|YouTube': [0.0065, 'YouTube'],
+      'Programmatic|Display': [0.001, 'programmatic display'], 'Programmatic|Native': [0.002, 'native'], 'Programmatic|CTV': [0.0003, 'CTV'] };
+    const VCR = { 'Programmatic|CTV': [0.92, 'CTV industry average of about 92%', 'completed views'], 'Programmatic|Audio': [0.94, 'streaming audio industry average of about 94%', 'completed listens'] };
+    const MIN = { Meta: 2000, TikTok: 2000, 'Google Ads|Search': 500, 'Google Ads|YouTube': 2000, 'Programmatic|Display': 10000, 'Programmatic|Native': 10000, 'Programmatic|CTV': 5000 };
+    const TIP = {
+      Meta: 'Refresh the creative and test new opening lines; check how often the same people see the ads.',
+      TikTok: 'Test native-style videos with a hook in the first two seconds and rotate creative more often.',
+      'Google Ads|Search': 'Review search terms, add negative keywords and tighten the ad copy to the keywords.',
+      'Google Ads|YouTube': 'Test shorter cuts with a clear call to action and review where the ads ran.',
+      'Programmatic|Display': 'Review site and app placements, refresh the banners and drop sizes that lag.',
+      'Programmatic|Native': 'Test new headlines and images and review publisher placements.',
+      'Programmatic|CTV': 'Check ad length and favor premium, non-skippable TV inventory.',
+      'Programmatic|Audio': 'Check ad length and placement mix.',
+    };
+    const LABEL = { Meta: 'Meta Ads', TikTok: 'TikTok', Programmatic: 'Programmatic' };
+    const series = new Map(); // key|client -> [[d, vals]]
+    const put = (platform, cid, d, v) => {
+      const c = info[platform + '|' + cid];
+      if (!c) return;
+      const key = platform === 'Meta' || platform === 'TikTok' ? platform : platform + '|' + (c.channel || 'Other');
+      for (const client of [c.client, 'All clients']) {
+        const k = key + '¦' + client;
+        if (!series.has(k)) series.set(k, []);
+        series.get(k).push([d, v, c.campaign]);
+      }
+    };
+    for (const r of meta_daily) put('Meta', r.cid, r.d, { imp: r.imp, clk: r.lc, conv: (r.leads || 0) + (r.calls || 0) + (r.msgs || 0) });
+    for (const r of google_daily) put('Google Ads', r.cid, r.d, { imp: r.imp, clk: r.clk, conv: r.conv || 0 });
+    for (const r of tiktok_daily) put('TikTok', r.cid, r.d, { imp: r.imp, clk: r.clk, conv: 0 });
+    for (const r of programmatic_daily) put('Programmatic', r.cid, r.d, { imp: r.imp, clk: r.clk, conv: r.conv || 0, vs: r.vs || 0, v100: r.v100 || 0 });
+    const nf = (v) => Math.round(v).toLocaleString('en-US');
+    const pc = (v, b) => (v * 100).toFixed(b < 0.001 ? 3 : 2) + '%';
+    const p0 = (v) => Math.round(v * 100) + '%';
+    const rows = [];
+    for (const p of periods) {
+      for (const [k, list] of series) {
+        const [key, client] = k.split('¦');
+        const z = () => ({ imp: 0, clk: 0, conv: 0, vs: 0, v100: 0 });
+        const cur = z(), prev = z();
+        const camp = new Map();
+        for (const [d, v, name] of list) {
+          const t = d >= p.start && d <= p.end ? cur : d >= p.prev_start && d <= p.prev_end ? prev : null;
+          if (!t) continue;
+          for (const f in v) t[f] += v[f] || 0;
+          if (t === cur) {
+            const o = camp.get(name) || { imp: 0, clk: 0 };
+            o.imp += v.imp || 0; o.clk += v.clk || 0;
+            camp.set(name, o);
+          }
+        }
+        if (cur.imp < 1) continue;
+        const [platform, channel] = key.includes('|') ? key.split('|') : [key, ''];
+        const ctr = cur.clk / cur.imp, pctr = prev.imp ? prev.clk / prev.imp : null;
+        const vcr = cur.vs >= 1000 ? cur.v100 / cur.vs : null;
+        const notes = [];
+        const live = [...camp.values()].filter((o) => o.imp > 0).length;
+        notes.push({ tone: 'neutral', text: `${nf(cur.imp)} impressions${channel === 'CTV' ? ' on TV screens' : ''}${cur.clk >= 1 && channel !== 'CTV' && channel !== 'Audio' && channel !== 'DOOH' ? ` and ${nf(cur.clk)} clicks` : ''} from ${live} campaign${live === 1 ? '' : 's'}.` });
+        const B = BENCH[key];
+        if (B && cur.imp >= (MIN[key] || 2000)) {
+          const [b, nm] = B, rel = ctr / b;
+          if (rel >= 1.1) notes.push({ tone: 'good', text: `Click-through rate of ${pc(ctr, b)} is ${rel >= 2 ? rel.toFixed(1) + '×' : Math.round((rel - 1) * 100) + '% above'} the ${nm} market benchmark (${pc(b, b)}).` });
+          else if (rel >= 0.9) notes.push({ tone: 'good', text: `Click-through rate of ${pc(ctr, b)} is in line with the ${nm} market benchmark (${pc(b, b)}).` });
+          else if (channel !== 'CTV') notes.push({ tone: 'flag', text: `Click-through rate of ${pc(ctr, b)} is below the ${nm} market benchmark (${pc(b, b)}). ${TIP[key] || ''}`.trim() });
+        }
+        const V = VCR[key];
+        if (V && vcr != null) {
+          if (vcr >= V[0] - 0.01) notes.push({ tone: 'good', text: `${p0(vcr)} of ads played to the end (${V[2]}), ${vcr >= V[0] + 0.01 ? 'above' : 'in line with'} the ${V[1]}.` });
+          else notes.push({ tone: 'flag', text: `Only ${p0(vcr)} of ads played to the end, below the ${V[1]}. ${TIP[key] || ''}`.trim() });
+        }
+        if (pctr != null && prev.imp >= (MIN[key] || 2000) && cur.imp >= (MIN[key] || 2000) && prev.clk >= 5) {
+          const d = ctr / pctr - 1;
+          if (d >= 0.1) notes.push({ tone: 'good', text: `Click-through rate improved ${Math.round(d * 100)}% on the previous period.` });
+          else if (d <= -0.2) notes.push({ tone: 'flag', text: `Click-through rate fell ${Math.round(-d * 100)}% from the previous period.` });
+        }
+        if (prev.imp >= 5000 && cur.imp < prev.imp * 0.6 && p.period !== 'mtd' && p.period !== 'qtd' && p.period !== 'ytd') notes.push({ tone: 'flag', text: `Impressions were down ${Math.round((1 - cur.imp / prev.imp) * 100)}% on the previous period; check budgets and pacing.` });
+        if (cur.conv >= 1) {
+          const what = platform === 'Meta' ? 'results (leads, calls and messages)' : platform === 'Programmatic' ? 'conversions, including people who saw an ad and acted later' : 'conversions';
+          notes.push({ tone: 'good', text: `${nf(cur.conv)} ${what}.` });
+        }
+        if (['Display', 'Native', 'Search'].includes(channel) || platform === 'Meta') {
+          const dead = [...camp.entries()].filter(([, o]) => o.imp >= 10000 && o.clk === 0).map(([n]) => n);
+          if (dead.length) notes.push({ tone: 'flag', text: `No clicks on 10,000+ impressions: ${dead.slice(0, 3).join(', ')}${dead.length > 3 ? ` and ${dead.length - 3} more` : ''}.` });
+        }
+        rows.push({ k: [p.period, client, key].join('|'), period: p.period, client, key, platform, channel, label: channel ? (platform === 'Programmatic' || channel === 'YouTube' || channel === 'Performance Max' || channel === 'Demand Gen' ? channel : `Google ${channel}`) : LABEL[platform] || platform, imp: cur.imp, clk: cur.clk, ctr, vcr, bench: B ? B[0] : null, notes });
+      }
+    }
+    return rows;
+  },
+});

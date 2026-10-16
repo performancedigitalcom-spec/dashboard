@@ -234,6 +234,21 @@ body.pd-accounts .team { display: none !important; }
   .pd-ctv td.bar em { font-style: normal; display: inline-block; width: 3em; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-fg-muted); font-size: 12px; }
   .pd-ctv tr.muted td { color: var(--color-fg-muted); }
   .pd-ctv .pd-bar > i { background: var(--c, var(--pd-blue)); }
+  .pd-perf h3 { margin-bottom: 10px; }
+  .pd-perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 14px; }
+  .pd-perf-item { border: 1px solid var(--color-border-line); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--swatch, var(--pd-blue)); }
+  .pd-perf-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .pd-perf-head b { font-family: var(--pd-display); font-size: 15px; }
+  .pd-perf-head .chip { font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-ok) 12%, transparent); color: var(--color-ok); white-space: nowrap; }
+  .pd-perf-head .chip.low { background: color-mix(in srgb, var(--color-warn) 12%, transparent); color: var(--color-warn); }
+  .pd-perf-item ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; line-height: 1.45; }
+  .pd-perf-item li { padding-left: 18px; position: relative; }
+  .pd-perf-item li::before { content: '•'; position: absolute; left: 4px; color: var(--color-fg-muted); }
+  .pd-perf-item li.good::before { content: '✓'; color: var(--color-ok); font-weight: 700; left: 2px; }
+  .pd-perf-item li.neutral { color: var(--color-fg-muted); }
+  .pd-perf-flags { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--color-warn) 8%, transparent); border: 1px dashed color-mix(in srgb, var(--color-warn) 45%, transparent); }
+  .pd-perf-flags .lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--color-warn); margin-bottom: 4px; }
+  .pd-perf-item li.flag::before { content: '!'; color: var(--color-warn); font-weight: 800; left: 5px; }
   .pd-netall { margin-top: 14px; border: 1px solid var(--color-border-line); border-radius: 10px; padding: 10px 14px; }
   .pd-netall summary { cursor: pointer; font-family: var(--pd-display); font-weight: 700; font-size: 14px; list-style-position: inside; }
   .pd-netall summary span { font-family: var(--pd-text); font-weight: 500; font-size: 12px; color: var(--color-fg-muted); margin-left: 6px; }
@@ -494,6 +509,7 @@ body.pd-accounts .team { display: none !important; }
 
   <section class="pd-section" id="meta" hidden style="--swatch: var(--pd-c0)">
     <h2>Meta (Facebook &amp; Instagram)</h2>
+    <div class="pd-card pd-perf" data-perf="Meta" data-source="tacperf" hidden></div>
     <div class="pd-card" id="pixel-card" hidden>
       <h3>Website pixel (Meta Pixel)</h3>
       <p class="note" id="pixel-note"></p>
@@ -535,6 +551,7 @@ body.pd-accounts .team { display: none !important; }
 
   <section class="pd-section" id="google" hidden style="--swatch: var(--pd-c1)">
     <h2>Google Ads</h2>
+    <div class="pd-card pd-perf" data-perf="Google Ads" data-source="tacperf" hidden></div>
     <div class="pd-grid">
       <div class="pd-card">
         <h3>By campaign type</h3>
@@ -565,6 +582,7 @@ body.pd-accounts .team { display: none !important; }
 
   <section class="pd-section" id="tiktok" hidden style="--swatch: var(--pd-c2)">
     <h2>TikTok</h2>
+    <div class="pd-card pd-perf" data-perf="TikTok" data-source="tacperf" hidden></div>
     <div class="pd-card">
       <h3>TikTok campaigns</h3>
       <p class="note">Auction campaigns.</p>
@@ -591,6 +609,7 @@ body.pd-accounts .team { display: none !important; }
 
   <section class="pd-section" id="programmatic" hidden style="--swatch: var(--pd-c3)">
     <h2>Programmatic — CTV, display, native, audio and DOOH</h2>
+    <div class="pd-card pd-perf" data-perf="Programmatic" data-source="tacperf" hidden></div>
     <div hidden><table class="pd-table" id="ptype-table" data-source="gtypes" data-row-key="k">
         <thead><tr>
           <th data-field="channel">Tactic</th><th data-field="campaigns">Campaigns</th><th data-field="imp">Impressions</th><th data-field="clk">Clicks</th><th data-field="ctr">CTR</th>
@@ -681,7 +700,7 @@ body.pd-accounts .team { display: none !important; }
     </div>
   </section>
 
-  <p class="pd-defs" id="defs"><b>How these numbers are counted.</b> Impressions and clicks come straight from each ad platform. Clicks on Meta are link clicks. Conversions add Google Ads conversions to the leads, calls and messaging conversations Meta attributes to a campaign; TikTok campaigns here are traffic campaigns with no conversion goal. Programmatic conversions include view-through conversions and are shown in their own section, not in the conversion total. Click-through rate across all platforms includes CTV and audio, which are rarely clicked. Website analytics come from GA4 for the clients whose property is linked in the PD warehouse. Audience and video numbers come from monthly platform reports, so a time frame counts every calendar month it touches. Pacing compares this month’s spend with last month’s spend per active day; the projection adds the last 7 days’ daily average for each day left. Highlights compare each client with the period before and with market click-through benchmarks: Meta 1.71% and Google search 6.66% (WordStream), TikTok 0.84%, YouTube 0.65%, and programmatic display 0.10%, native 0.20% and CTV 0.03% (Focus Digital / Gourmet Ads). CTV networks and household income come from the programmatic platform; “Network not reported” is delivery where the exchange didn’t pass a network name. “vs prior” compares to the same number of days just before the time frame (for a calendar month, the month before). Investment is what each platform reports as spent.</p>
+  <p class="pd-defs" id="defs"><b>How these numbers are counted.</b> Impressions and clicks come straight from each ad platform. Clicks on Meta are link clicks. Conversions add Google Ads conversions to the leads, calls and messaging conversations Meta attributes to a campaign; TikTok campaigns here are traffic campaigns with no conversion goal. Programmatic conversions include view-through conversions and are shown in their own section, not in the conversion total. Click-through rate across all platforms includes CTV and audio, which are rarely clicked. Website analytics come from GA4 for the clients whose property is linked in the PD warehouse. Audience and video numbers come from monthly platform reports, so a time frame counts every calendar month it touches. Pacing compares this month’s spend with last month’s spend per active day; the projection adds the last 7 days’ daily average for each day left. Highlights compare each client with the period before and with market click-through benchmarks: Meta 1.71% and Google search 6.66% (WordStream), TikTok 0.84%, YouTube 0.65%, and programmatic display 0.10%, native 0.20% and CTV 0.03% (Focus Digital / Gourmet Ads). The “Performance vs. market” notes also compare CTV completion with an industry average of about 92% (AdWave) and audio listen-through with about 94% (Next Broadcast Media); notes marked “To improve” appear on the dashboard only and are never included in a PDF. CTV networks and household income come from the programmatic platform; “Network not reported” is delivery where the exchange didn’t pass a network name. “vs prior” compares to the same number of days just before the time frame (for a calendar month, the month before). Investment is what each platform reports as spent.</p>
 </div>
 
 </div>

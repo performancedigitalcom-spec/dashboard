@@ -405,8 +405,10 @@
     if (solo) cols.push({ label: 'Platform', w: 0.12, align: 'left', get: (r) => r.platform });
     cols.push({ label: 'Spent vs month elapsed', w: 0.2, align: 'left', draw: (ctx, x, y, cw, rh, r) => hbar(doc.ctx, x + 8, y + 12, cw - 24, 11, r.spent_share, BLUE, r.elapsed_share) });
     if (sp) cols.push({ label: 'Spent so far', w: 0.11, get: (r) => money0(r.mtd) }, { label: 'Daily avg 7d', w: 0.1, get: (r) => money(r.daily_7d) });
-    cols.push({ label: 'Projected', w: 0.11, get: (r) => chg(r.projected_vs_last).replace(/\.\d%/, '%') });
-    cols.push({ label: 'Status', w: 0.11, get: (r) => (ST[r.status] || [r.status])[0], color: (r) => (ST[r.status] || [0, INK])[1] });
+    cols.push({ label: 'Projected', w: 0.11, get: (r) => chgP(r.projected_vs_last).replace(/\.\d%/, '%') });
+    // client-facing: under-pace / stopped are left blank in the PDF (they stay on the live dashboard)
+    const okSt = (r) => r.status !== 'under' && r.status !== 'stopped';
+    cols.push({ label: 'Status', w: 0.11, get: (r) => (okSt(r) ? (ST[r.status] || [r.status])[0] : ''), color: (r) => (ST[r.status] || [0, INK])[1] });
     table(doc, cols, rows);
   }
 
@@ -548,6 +550,38 @@
     doc.y += 10;
   }
 
+  // performance vs. market: only good and neutral notes go into the PDF (flags stay on the live dashboard)
+  function perfBlock(doc, rows) {
+    rows = (rows || []).map((r) => ({ ...r, keep: r.notes.filter((n) => n.tone !== 'flag') })).filter((r) => r.keep.length);
+    if (!rows.length) return;
+    doc.ensure(150);
+    doc.text(rows.length > 1 ? 'Performance vs. market, by tactic' : 'Performance vs. market', M, doc.y + 24, { size: 19, weight: '700', font: DISPLAY });
+    doc.y += 36;
+    const colW = (W - 2 * M - 24) / 2;
+    for (let i = 0; i < rows.length; i += 2) {
+      const pair = rows.slice(i, i + 2).map((r) => ({ r, ls: r.keep.map((n) => [n.tone, lines(doc, n.text, colW - 52, 15)]) }));
+      const hh = (p) => 40 + p.ls.reduce((a, [, l]) => a + l.length * 21 + 6, 0) + 10;
+      const h = Math.max(...pair.map(hh));
+      doc.ensure(h + 12);
+      pair.forEach((p, j) => {
+        const x = M + j * (colW + 24), y0 = doc.y;
+        doc.ctx.fillStyle = '#F6F8FB';
+        doc.ctx.fillRect(x, y0, colW, h);
+        doc.ctx.fillStyle = BLUE;
+        doc.ctx.fillRect(x, y0, colW, 4);
+        doc.text(p.r.label, x + 18, y0 + 32, { size: 17, weight: '700' });
+        let y = y0 + 58;
+        for (const [tone, l] of p.ls) {
+          doc.text(tone === 'good' ? '✓' : '•', x + 20, y, { size: 15, weight: '700', color: tone === 'good' ? '#15803D' : MUTED });
+          for (const t of l) { doc.text(t, x + 42, y, { size: 15, color: tone === 'good' ? INK : MUTED }); y += 21; }
+          y += 6;
+        }
+      });
+      doc.y += h + 14;
+    }
+    doc.y += 6;
+  }
+
   function ctvBlock(doc, cx, v) {
     const k1 = (r) => (r.cpm == null ? '—' : d3.format(',.2f')(r.cpm));
     const shareCol = (w) => ({ label: 'Share of CTV impressions', w, align: 'left', draw: (ctx, x, y, cw, rh, r) => {
@@ -625,7 +659,7 @@
       if (sp) kt.push({ label: 'Investment', value: money0(all.spend), change: chgP(all.d_spend) });
       if (on('summary')) {
         tiles(doc, kt);
-        storyBlock(doc, window.PD.extra, on('improve'), HIDE_DOWN);
+        storyBlock(doc, window.PD.extra, sel ? sel.has('improvebox') : false, HIDE_DOWN);
       }
       if (on('daily')) {
         doc.ensure(420);
@@ -669,6 +703,7 @@
     if (on('meta') && m && (m.imp || m.spend)) {
       fresh();
       heading(doc, 'Meta (Facebook & Instagram)', colors[0]);
+      (on('perf') && perfBlock(doc, (window.PD.extra.perf || {})['Meta']));
       const cols = [
         { label: 'Campaign', w: sp ? 0.3 : 0.38, align: 'left', get: name },
         { label: 'Impressions', w: 0.12, get: (r) => int(r.imp) },
@@ -727,6 +762,7 @@
     if (on('google') && g && (g.imp || g.spend)) {
       fresh();
       heading(doc, 'Google Ads', colors[1]);
+      (on('perf') && perfBlock(doc, (window.PD.extra.perf || {})['Google Ads']));
       const tcols = [
         { label: 'Campaign type', w: 0.26, align: 'left', get: (r) => r.channel },
         { label: 'Campaigns', w: 0.1, get: (r) => int(r.campaigns) },
@@ -753,6 +789,7 @@
     if (on('tiktok') && t && (t.imp || t.spend)) {
       doc.ensure(400);
       heading(doc, 'TikTok', colors[2]);
+      (on('perf') && perfBlock(doc, (window.PD.extra.perf || {})['TikTok']));
       const cols = [
         { label: 'Campaign', w: sp ? 0.34 : 0.46, align: 'left', get: name },
         { label: 'Impressions', w: 0.13, get: (r) => int(r.imp) },
@@ -787,6 +824,7 @@
     if (progOn && pr && (pr.imp || pr.spend)) {
       fresh();
       heading(doc, 'Programmatic', colors[3]);
+      (on('perf') && perfBlock(doc, (window.PD.extra.perf || {})['Programmatic']));
       const vcr = (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr));
       doc.y += 10;
       if (on('prog')) {
@@ -962,10 +1000,10 @@
     const v = window.PD.views, ex = window.PD.extra || {};
     const has = (p) => { const r = v.tot.get(`${v.period.period}|${v.st.client}|${p}`); return r && (r.imp || r.spend); };
     const groups = [
-      ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improve', '“Things to improve” box'], ['daily', 'Daily delivery charts'], ['mix', 'Channel mix'],
+      ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improvebox', '“Things to improve” box (internal)'], ['daily', 'Daily delivery charts'], ['mix', 'Channel mix'],
         ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
       ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
-        has('Programmatic') && ['prog', 'Programmatic campaigns']]],
+        has('Programmatic') && ['prog', 'Programmatic campaigns'], ex.perf && Object.values(ex.perf).some((l) => l.length) && ['perf', 'Performance vs. market (positive notes only)']]],
       ['Programmatic tactics', [...(ex.tactics || []).flatMap((t) => [['tac:' + t.tac, `${t.label} creatives`], t.tac === 'CTV' && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households']]), !(ex.tactics || []).some((t) => t.tac === 'CTV') && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households'], ex.psizes && ex.psizes.length && ['sizes', 'Display and native by ad size']]],
       ['Website', [ex.ga4 && (ex.ga4.all ? ex.ga4.rows.length : ex.ga4.total) && ['ga4', 'Website analytics (GA4)']]],
       ['Options', [['hidedown', 'Hide decreases vs the prior period']]],
@@ -986,7 +1024,7 @@
         const c = document.createElement('input');
         c.type = 'checkbox';
         c.value = k;
-        c.checked = !saved || saved[k] !== false;
+        c.checked = k === 'improvebox' ? !!(saved && saved[k] === true) : !saved || saved[k] !== false;
         l.append(c, ' ' + label);
         list.append(l);
       }
@@ -1021,12 +1059,12 @@
         await Promise.all([document.fonts.load("800 40px 'PD Display'"), document.fonts.load("700 20px 'PD Display'"), document.fonts.load("400 18px 'PD Text'"), document.fonts.load("700 18px 'PD Text'")]);
       } catch (e) {}
       const v = window.PD.views;
-      const partial = bs.some((b) => !b.checked && b.value !== 'improve' && b.value !== 'hidedown');
+      const partial = bs.some((b) => !b.checked && b.value !== 'improvebox' && b.value !== 'perf' && b.value !== 'hidedown');
       const blob = toPdf(build(sel));
       const safe = (s) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
       let part = '';
       if (partial) {
-        const names = bs.filter((b) => b.checked && b.value !== 'improve' && b.value !== 'hidedown').map((b) => b.parentElement.textContent.trim().split(' ')[0]);
+        const names = bs.filter((b) => b.checked && b.value !== 'improvebox' && b.value !== 'perf' && b.value !== 'hidedown').map((b) => b.parentElement.textContent.trim().split(' ')[0]);
         part = '_' + safe(names.length > 2 ? 'selected-sections' : names.join('-'));
       }
       await save(blob, `${safe(v.st.client)}_${safe(v.period.label)}_${v.period.end}${part}.pdf`);

@@ -95,6 +95,45 @@
     const vid = data('video');
     const out = (PD.extra = {});
 
+    // ---------- performance vs. market, one block per platform / tactic ----------
+    const tp = data('tacperf');
+    out.perf = {};
+    document.querySelectorAll('.pd-perf[data-perf]').forEach((box) => {
+      const plat = box.dataset.perf;
+      const rows = (tp || []).filter((r) => r.period === period.period && r.client === st.client && r.platform === plat).sort((a, b) => b.imp - a.imp);
+      box.replaceChildren();
+      box.hidden = !rows.length;
+      out.perf[plat] = rows;
+      if (!rows.length) return;
+      box.append(el('h3', null, rows.length > 1 ? 'Performance vs. market, by tactic' : 'Performance vs. market'));
+      const grid = el('div', 'pd-perf-grid');
+      for (const r of rows) {
+        const b = el('div', 'pd-perf-item');
+        const head = el('div', 'pd-perf-head');
+        head.append(el('b', null, r.label));
+        if (r.bench != null && r.channel !== 'CTV') {
+          const rel = r.ctr / r.bench;
+          const chip = el('span', 'chip ' + (rel >= 0.9 ? 'ok' : 'low'), `CTR ${d3.format(r.bench < 0.001 ? '.3%' : '.2%')(r.ctr)} · benchmark ${d3.format(r.bench < 0.001 ? '.3%' : '.2%')(r.bench)}`);
+          head.append(chip);
+        } else if (r.vcr != null) head.append(el('span', 'chip ' + (r.vcr >= (r.channel === 'Audio' ? 0.93 : 0.91) ? 'ok' : 'low'), `Completion ${d3.format('.0%')(r.vcr)}`));
+        b.append(head);
+        const ul = el('ul');
+        for (const n of r.notes.filter((x) => x.tone !== 'flag')) ul.append(el('li', n.tone, n.text));
+        b.append(ul);
+        const flags = r.notes.filter((x) => x.tone === 'flag');
+        if (flags.length) {
+          const f = el('div', 'pd-perf-flags');
+          f.append(el('div', 'lbl', 'To improve · not included in the PDF'));
+          const fl = el('ul');
+          for (const n of flags) fl.append(el('li', 'flag', n.text));
+          f.append(fl);
+          b.append(f);
+        }
+        grid.append(b);
+      }
+      box.append(grid);
+    });
+
     // ---------- story + highlights ----------
     const story = document.getElementById('pd-story');
     const good = document.getElementById('hl-good');
