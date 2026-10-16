@@ -418,7 +418,7 @@
       const top = hh.filter((r) => r.name !== 'Unknown').sort((a, b) => b.imp - a.imp)[0];
       const hhSub = hhAll ? `${p0(hhKnown / hhAll)} of impressions matched to an income` : '';
       document.getElementById('hhi-sub').textContent = hhSub;
-      document.getElementById('ctv-note').textContent = 'Where the CTV ads ran and the household income of the homes that saw them, from Illumin by calendar month (a time frame counts every month it touches). Exchanges don’t always pass the network name, so part of the delivery is listed as “Network not reported”.';
+      document.getElementById('ctv-note').textContent = 'Where the CTV ads ran and the household income of the homes that saw them, from the programmatic platform by calendar month (a time frame counts every month it touches). Exchanges don’t always pass the network name, so part of the delivery is listed as “Network not reported”.';
       // conversion definitions
       const dbox = document.getElementById('ctv-defs');
       dbox.replaceChildren();
@@ -434,50 +434,103 @@
       const span = (d) => (d.start && d.end ? `${dayFmt(parse(d.start))} – ${dayFmt(parse(d.end))}` : d.start ? `Since ${dayFmt(parse(d.start))}` : '');
       const defOut = [];
       const dcard = document.getElementById('pdef-card');
+      const cs = mine.find((r) => r.kind === 'convsum');
+      const hasSplit = !!(cs && cs.split && cs.n >= 1);
       const hasDefs = single && defs.some((d) => d.status !== 'NONE');
-      dcard.hidden = !hasDefs;
+      dcard.hidden = !hasDefs && !hasSplit;
+      const n0 = (v) => d3.format(',.0f')(v || 0);
+      let convSum = null;
+      if (hasSplit) {
+        // one definition in force for the whole time frame -> use its names on the summary bar
+        const mapped = defs.filter((d) => d.status === 'MAPPED' && d.n >= 0.5);
+        const sigL = new Set(mapped.map((d) => [d.l1, d.l2, d.l3].join('¦')));
+        const only = single && sigL.size === 1 && defs.every((d) => d.status === 'MAPPED' || d.n < 0.5) ? mapped[0] : null;
+        const parts = [['Primary', cs.n1, only && only.l1, '#1B75BC'], ['Secondary', cs.n2, only && only.l2, '#5B97CF'], ['Tertiary', cs.n3, only && only.l3, '#B0CEEB']];
+        const tot = cs.n1 + cs.n2 + cs.n3 || 1;
+        const sh = (v) => (v > 0 && v / tot < 0.005 ? '<1%' : d3.format('.0%')(v / tot));
+        const box = el('div', 'pd-cmix');
+        const barEl = el('div', 'pd-cbar');
+        const keys = el('div', 'pd-ckeys');
+        for (const [k, v, l, c] of parts) {
+          if (v < 0.5) continue;
+          const seg = el('span');
+          seg.style.background = c;
+          seg.style.flexGrow = String(v / tot);
+          seg.title = `${k}: ${n0(v)}`;
+          barEl.append(seg);
+          const key = el('div', 'pd-ckey');
+          key.style.setProperty('--c', c);
+          key.append(el('b', null, n0(v)), el('span', 'k', `${k} · ${sh(v)}`));
+          if (l) key.append(el('span', 'l', lab(l)));
+          keys.append(key);
+        }
+        box.append(barEl, keys);
+        const vt = cs.cc + cs.av;
+        const how = vt >= 1 ? ` ${d3.format('.0%')(cs.cc / vt)} followed a click on an ad; ${d3.format('.0%')(cs.av / vt)} came from people who saw an ad and acted later without clicking.` : '';
+        const lead = `${n0(cs.n)} programmatic conversion${Math.round(cs.n) === 1 ? '' : 's'} in this time frame.`;
+        const mixed = single && !only && mapped.length > 0;
+        const primTxt = (cs.n1 >= 0.5 ? ` ${sh(cs.n1)} were Primary actions${only && only.l1 ? ` (${lab(only.l1)})` : ''}.` : ' None were Primary actions.') + (mixed ? ' What counts as Primary, Secondary and Tertiary changed over this time frame (see below).' : '');
+        dbox.append(el('p', 'pd-clead', lead + primTxt + how), box);
+        convSum = { n: cs.n, parts: parts.filter((x) => x[1] >= 0.5).map(([k, v, l, c]) => ({ k, v, l: l ? lab(l) : '', c, share: v / tot, pct: sh(v) })), text: lead + primTxt + how };
+      }
       if (hasDefs) {
         // journeys with identical definitions (same dates and labels) are shown once
         const sig = (d) => [d.start, d.end, d.status, d.l1, d.l2, d.l3, d.notes].join('¦');
         const merged = new Map();
         for (const d of defs.slice().sort((a, b) => (a.start + a.name).localeCompare(b.start + b.name))) {
           const m = merged.get(sig(d));
-          if (m) { if (!m.names.includes(d.name)) m.names.push(d.name); }
-          else merged.set(sig(d), { ...d, names: [d.name] });
+          if (m) {
+            if (!m.names.includes(d.name)) m.names.push(d.name);
+            for (const f of ['n', 'n1', 'n2', 'n3']) m[f] += d[f] || 0;
+          } else merged.set(sig(d), { ...d, names: [d.name] });
         }
         const byJ = d3.group([...merged.values()].sort((a, b) => (a.names.join() + a.start).localeCompare(b.names.join() + b.start)), (d) => d.names.join('|'));
         const changed = [...byJ.values()].some((l) => l.length > 1);
+        const one = merged.size === 1 && [...merged.values()][0];
+        if (one && one.status === 'MAPPED' && convSum && convSum.parts.some((x) => x.l)) {
+          // the summary already names each type; just say which journey and since when
+          dbox.append(el('p', null, `Definitions for ${jlabel(one.names)}, ${span(one).replace(/^Since/, 'in force since')}. ${one.notes || ''}`.trim()));
+          defOut.push({ journey: jlabel(one.names), when: span(one), status: 'MAPPED', items: [], notes: one.notes, folded: true });
+        } else {
         dbox.append(el('p', null, changed
-          ? 'The definitions changed during this time frame, so the counts above combine the actions listed for each date range.'
-          : 'Illumin conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count, so they are listed here for this time frame.'));
+          ? 'The definitions changed during this time frame, so each date range is listed with the conversions counted under it.'
+          : 'Programmatic conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count; the number is how many happened in this time frame.'));
         for (const [, list] of byJ) {
           for (const d of list) {
             const row = el('div', 'pd-def');
             const when = el('div', 'when');
-            when.append(el('b', null, jlabel(d.names)), document.createTextNode(span(d)));
+            when.append(el('b', null, jlabel(d.names)), document.createTextNode(d.status === 'GAP' ? 'Days with no definition on file' : span(d)));
             const body = el('div');
-            const o = { journey: jlabel(d.names), when: span(d), status: d.status, items: [], notes: d.notes };
+            const o = { journey: jlabel(d.names), when: d.status === 'GAP' ? 'Days with no definition on file' : span(d), status: d.status, items: [], notes: d.notes };
+            const dl = el('dl');
+            const line = (k, t, v) => {
+              const dd = el('dd');
+              dd.append(el('span', null, t), el('em', 'n', n0(v)));
+              dl.append(el('dt', null, k), dd);
+              o.items.push([k, t, n0(v)]);
+            };
             if (d.status === 'MAPPED') {
-              const dl = el('dl');
-              for (const [k, t] of [['Primary', d.l1], ['Secondary', d.l2], ['Tertiary', d.l3]]) {
-                if (!t) continue;
-                dl.append(el('dt', null, k), el('dd', null, lab(t)));
-                o.items.push([k, lab(t)]);
-              }
+              for (const [k, t, v] of [['Primary', d.l1, d.n1], ['Secondary', d.l2, d.n2], ['Tertiary', d.l3, d.n3]]) if (t || v >= 0.5) line(k, t ? lab(t) : 'Not set', v);
               body.append(dl);
               if (d.notes) body.append(el('div', 'when', d.notes));
-            } else if (d.status === 'NONE') {
-              body.append(el('div', 'when', 'No conversion definitions on file for this journey yet, so the counts are shown as Illumin reports them.'));
             } else {
-              body.append(el('div', 'warn', d.notes || 'No confirmed conversion mapping for these dates.'));
+              body.append(el('div', d.status === 'NONE' || d.status === 'GAP' ? 'when' : 'warn',
+                d.status === 'NONE' ? 'No conversion definitions on file for this journey yet, so the counts are shown as the platform reports them.'
+                  : d.status === 'GAP' ? 'These days fall outside every definition on file for this journey.'
+                    : d.notes || 'No confirmed conversion mapping for these dates.'));
+              if (d.n >= 0.5) {
+                for (const [k, v] of [['Primary', d.n1], ['Secondary', d.n2], ['Tertiary', d.n3]]) if (v >= 0.5) line(k, '', v);
+                body.append(dl);
+              }
             }
             row.append(when, body);
             dbox.append(row);
             defOut.push(o);
           }
         }
+        }
       }
-      out.ctv = card.hidden && dcard.hidden ? null : { show: !card.hidden, nets: netRows, hhi: hhRows, netSub, hhSub, pst: showPST, defs: defOut, single, changed: single && defOut.length > new Set(defOut.map((d) => d.journey)).size };
+      out.ctv = card.hidden && dcard.hidden ? null : { show: !card.hidden, nets: netRows, hhi: hhRows, netSub, hhSub, pst: showPST, defs: defOut, convSum, single, changed: single && defOut.length > new Set(defOut.map((d) => d.journey)).size };
     }
     const ps = data('psizes');
     if (ps && PD.fillTable) {

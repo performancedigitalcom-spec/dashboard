@@ -482,15 +482,51 @@
   }
 
   function defsBlock(doc, cx) {
-    doc.ensure(200);
-    doc.text('What Illumin conversions count', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+    doc.ensure(240);
+    doc.text('What programmatic conversions count', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
     doc.y += 38;
-    doc.wrap(cx.changed ? 'The definitions changed during this time frame, so the counts combine the actions listed for each date range.' : 'Illumin conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count.', M, W - 2 * M, { size: 16, color: MUTED, lh: 1.45 });
+    const cs = cx.convSum;
+    if (cs && cs.parts.length) {
+      doc.wrap(cs.text, M, W - 2 * M, { size: 16, color: INK, lh: 1.45 });
+      doc.y += 8;
+      // stacked bar + key
+      const bw = W - 2 * M, by = doc.y, tot = cs.parts.reduce((a, p) => a + p.v, 0) || 1;
+      let x = M;
+      for (const p of cs.parts) {
+        const w = Math.max(4, (p.v / tot) * bw - 2);
+        doc.ctx.fillStyle = p.c;
+        doc.ctx.fillRect(x, by, w, 16);
+        x += w + 2;
+      }
+      doc.y += 30;
+      const cw = (W - 2 * M) / cs.parts.length;
+      let maxH = 0;
+      cs.parts.forEach((p, i) => {
+        const cx0 = M + i * cw;
+        doc.ctx.fillStyle = p.c;
+        doc.ctx.fillRect(cx0, doc.y, 4, 64);
+        doc.text(d3.format(',.0f')(p.v), cx0 + 14, doc.y + 24, { size: 22, weight: '700', font: DISPLAY });
+        doc.text(`${p.k.toUpperCase()} · ${p.pct || d3.format('.0%')(p.share)}`, cx0 + 14, doc.y + 46, { size: 12, weight: '700', color: MUTED });
+        let yy = doc.y + 66;
+        if (p.l) for (const t of lines(doc, p.l, cw - 30, 14).slice(0, 3)) { doc.text(t, cx0 + 14, yy, { size: 14, color: INK }); yy += 19; }
+        maxH = Math.max(maxH, yy - doc.y);
+      });
+      doc.y += maxH + 12;
+    }
+    if (!cx.single || !cx.defs.some((d) => d.status !== 'NONE')) { doc.y += 10; return; }
+    if (cx.defs.length === 1 && cx.defs[0].folded) {
+      const d = cx.defs[0];
+      doc.wrap(`Definitions for ${d.journey}, ${(d.when || '').replace(/^Since/, 'in force since')}. ${d.notes || ''}`.trim(), M, W - 2 * M, { size: 15, color: MUTED, lh: 1.45 });
+      doc.y += 16;
+      return;
+    }
+    doc.wrap(cx.changed ? 'The definitions changed during this time frame, so each date range is listed with the conversions counted under it.' : 'Programmatic conversions are Primary + Secondary + Tertiary. Each client and journey sets what those count; the number is how many happened in this time frame.', M, W - 2 * M, { size: 16, color: MUTED, lh: 1.45 });
     doc.y += 6;
-    const lw = 330, kx = M + lw + 20, vx = kx + 130, vw = W - M - vx;
+    const lw = 330, kx = M + lw + 20, vx = kx + 130, nx = W - M, vw = W - M - vx - 90;
     for (const d of cx.defs) {
-      const items = d.status === 'MAPPED' ? d.items : [['', d.status === 'NONE' ? 'No conversion definitions on file for this journey yet.' : d.notes || 'No confirmed conversion mapping for these dates.']];
-      const wrapped = items.map(([k, t]) => [k, lines(doc, t, vw, 16)]);
+      const msg = d.status === 'NONE' ? 'No conversion definitions on file for this journey yet.' : d.status === 'GAP' ? 'These days fall outside every definition on file.' : d.notes || 'No confirmed conversion mapping for these dates.';
+      const items = d.status === 'MAPPED' ? d.items : [['', msg, ''], ...d.items];
+      const wrapped = items.map(([k, t, n]) => [k, lines(doc, t || '—', vw, 16), n]);
       const jl = lines(doc, d.journey, lw, 16);
       const h = Math.max(jl.length * 23 + 24, wrapped.reduce((a, [, l]) => a + l.length * 23 + 4, 0) + (d.notes && d.status === 'MAPPED' ? 26 : 0)) + 14;
       doc.ensure(h);
@@ -500,9 +536,10 @@
       for (const t of jl) { doc.text(t, M, y, { size: 16, weight: '700' }); y += 23; }
       doc.text(d.when || '', M, y, { size: 15, color: MUTED });
       y = doc.y + 26;
-      for (const [k, l] of wrapped) {
+      for (const [k, l, n] of wrapped) {
         if (k) doc.text(k.toUpperCase(), kx, y, { size: 13, weight: '700', color: MUTED });
-        for (const t of l) { doc.text(t, k ? vx : kx, y, { size: 16, color: d.status === 'MAPPED' ? INK : '#b45309' }); y += 23; }
+        if (n) doc.text(n, nx, y, { size: 16, weight: '700', align: 'right' });
+        for (const t of l) { doc.text(t, k ? vx : kx, y, { size: 16, color: k || d.status === 'MAPPED' ? INK : '#b45309' }); y += 23; }
         y += 4;
       }
       if (d.notes && d.status === 'MAPPED') doc.text(d.notes, vx, y, { size: 14, color: MUTED, maxW: vw });
@@ -730,7 +767,7 @@
     const progOn = on('prog') || on('sizes') || on('ctv') || tacsAll.some((x) => on('tac:' + x.tac));
     if (progOn && pr && (pr.imp || pr.spend)) {
       fresh();
-      heading(doc, 'Programmatic (Illumin)', colors[3]);
+      heading(doc, 'Programmatic', colors[3]);
       const vcr = (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr));
       doc.y += 10;
       if (on('prog')) {
@@ -747,7 +784,7 @@
       table(doc, cc.filter((c) => c.label !== 'Completion' || camp('Programmatic').some((r) => r.vcr != null)), camp('Programmatic'));
       }
       const cx = window.PD.extra && window.PD.extra.ctv;
-      if ((on('prog') || on('ctv')) && cx && cx.single && cx.defs.some((d) => d.status !== 'NONE')) defsBlock(doc, cx);
+      if ((on('prog') || on('ctv')) && cx && ((cx.single && cx.defs.some((d) => d.status !== 'NONE')) || (cx.convSum && cx.convSum.parts.length))) defsBlock(doc, cx);
       const tacs = tacsAll.filter((x) => on('tac:' + x.tac));
       const FMTS = { name: null, size: (r) => r.size || '—', imp: (r) => int(r.imp), clk: (r) => int(r.clk), ctr: (r) => pct(r.ctr), p100: (r) => int(r.p100), vcr: (r) => (r.vcr == null ? '—' : d3.format('.1%')(r.vcr)), pconv: (r) => dec(r.pconv) };
       for (const t of tacs) {

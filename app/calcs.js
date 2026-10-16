@@ -199,7 +199,7 @@ dash.calc('camps', {
         const o = {};
         for (const f of F) o[f] = 0;
         for (const [d, v] of list) if (d >= p.start && d <= p.end) for (const f in v) o[f] += v[f];
-        if (!o.imp && !o.spend) continue;
+        if (!o.imp && !o.spend && !o.pconv) continue;
         const c = info[key];
         rows.push({
           k: p.period + '|' + key,
@@ -516,7 +516,7 @@ dash.calc('insights', {
         if (all.conv >= 1 && all.cpa) S.push(`Each conversion cost about ${usd(all.cpa)}.`);
         const pg = pf.find((r) => r.platform === 'Programmatic');
         if (pg && pg.pconv >= 1) {
-          const t = `Programmatic added ${nf(pg.pconv)} conversion${Math.round(pg.pconv) === 1 ? '' : 's'} as counted by Illumin, which includes people who saw an ad and converted later.`;
+          const t = `Programmatic added ${nf(pg.pconv)} conversion${Math.round(pg.pconv) === 1 ? '' : 's'} as counted by the programmatic platform, which includes people who saw an ad and converted later.`;
           S.push(t);
           Sns.push(t);
         }
@@ -774,9 +774,9 @@ dash.calc('psizes', {
 
 dash.calc('ctvmix', {
   title: 'CTV networks, household income and conversion definitions',
-  description: 'CTV impressions, clicks and conversions by streaming network and by household income for each client and period, from Illumin by calendar month (a time frame counts every month it touches). Also lists what Primary, Secondary and Tertiary conversions meant for each client’s Illumin journeys (all tactics) in the period.',
-  inputs: ['campaigns', 'monthly', 'periods'],
-  fn: (campaigns, monthly, periods) => {
+  description: 'CTV impressions, clicks and conversions by streaming network and by household income for each client and period, from the programmatic platform by calendar month (a time frame counts every month it touches). Also lists what Primary, Secondary and Tertiary conversions meant for each client’s programmatic journeys (all tactics) in the period, with how many of each happened under each definition (date-aware, from daily programmatic rows), and a per-client total split by type and by click vs view-through.',
+  inputs: ['campaigns', 'monthly', 'programmatic_daily', 'periods'],
+  fn: (campaigns, monthly, programmatic_daily, periods) => {
     const info = {};
     for (const c of campaigns) if (c.platform === 'Programmatic') info[c.campaign_id] = c;
     const journey = {};
@@ -794,11 +794,6 @@ dash.calc('ctvmix', {
         if ((r.kind !== 'ctvnet' && r.kind !== 'hhi') || r.m < m0 || r.m > m1) continue;
         const c = info[r.cid];
         if (!c) continue;
-        const j = journey[r.cid];
-        if (j && r.kind === 'hhi') {
-          if (!used.has(c.client)) used.set(c.client, new Map());
-          used.get(c.client).set(j.id, j.name);
-        }
         if (c.channel !== 'CTV') continue;
         for (const client of [c.client, 'All clients']) {
           const k = [p.period, client, r.kind, r.b].join('|');
@@ -818,13 +813,40 @@ dash.calc('ctvmix', {
         tot.set(t, (tot.get(t) || 0) + o.imp);
       }
       for (const o of acc.values()) rows.push({ ...o, share: o.imp / (tot.get(o.client + '|' + o.kind) || 1), ctr: o.imp ? o.clk / o.imp : null });
+      // conversions by journey and by the definition in force on each day (date-aware), from the daily programmatic rows
+      const cnt = new Map(); // client|journey|cfg start ('' = no definition) -> counts
+      const sum = new Map(); // client -> totals
+      const z = () => ({ n: 0, n1: 0, n2: 0, n3: 0, cc: 0, av: 0, imp: 0 });
+      const add = (o, r) => {
+        o.n += r.conv || 0; o.n1 += r.pconv || 0; o.n2 += r.p2 || 0; o.n3 += r.p3 || 0; o.cc += r.cc || 0; o.av += r.av || 0; o.imp += r.imp || 0;
+      };
+      for (const r of programmatic_daily) {
+        if (r.d < p.start || r.d > p.end) continue;
+        const c = info[r.cid];
+        if (!c) continue;
+        for (const client of [c.client, 'All clients']) {
+          if (!sum.has(client)) sum.set(client, { ...z(), split: r.p2 != null });
+          add(sum.get(client), r);
+        }
+        const j = journey[r.cid];
+        if (!j) continue;
+        if (!used.has(c.client)) used.set(c.client, new Map());
+        used.get(c.client).set(j.id, j.name);
+        const cf = cfgs.find((x) => x.b === j.id && x.s <= r.d && (!x.e || r.d <= x.e));
+        const k = [c.client, j.id, cf ? cf.s : ''].join('|');
+        if (!cnt.has(k)) cnt.set(k, z());
+        add(cnt.get(k), r);
+      }
+      for (const [client, o] of sum) rows.push({ k: [p.period, client, 'convsum'].join('|'), period: p.period, client, kind: 'convsum', ...o });
       for (const [client, js] of used) {
         for (const [jid, jname] of js) {
           for (const c of cfgs) {
             if (c.b !== jid || c.s > p.end || (c.e && c.e < p.start)) continue;
-            rows.push({ k: [p.period, client, 'def', jid, c.s].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: c.s, end: c.e || '', status: c.st, l1: c.l1, l2: c.l2, l3: c.l3, notes: c.notes || '' });
+            rows.push({ k: [p.period, client, 'def', jid, c.s].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: c.s, end: c.e || '', status: c.st, l1: c.l1, l2: c.l2, l3: c.l3, notes: c.notes || '', ...(cnt.get([client, jid, c.s].join('|')) || z()) });
           }
-          if (!cfgs.some((c) => c.b === jid)) rows.push({ k: [p.period, client, 'def', jid, ''].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: '', end: '', status: 'NONE', l1: '', l2: '', l3: '', notes: '' });
+          const none = cnt.get([client, jid, ''].join('|'));
+          const hasCfg = cfgs.some((c) => c.b === jid);
+          if (!hasCfg || (none && none.n >= 0.5)) rows.push({ k: [p.period, client, 'def', jid, ''].join('|'), period: p.period, client, kind: 'def', name: jname, journey: jid, start: '', end: '', status: hasCfg ? 'GAP' : 'NONE', l1: '', l2: '', l3: '', notes: '', ...(none || z()) });
         }
       }
     }
