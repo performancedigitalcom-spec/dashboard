@@ -103,6 +103,8 @@ NET_ALIAS = {
     'xumo: production houses': 'Xumo', 'fetv': 'FETV', 'gritxtra': 'Grit Xtra', 'bouncexl': 'Bounce XL', 'knxv': 'KNXV (ABC15)',
     'nexstar local tv stations': 'Nexstar', 'itvstudios': 'ITV Studios', 'broadcaststreaminginventory': 'Broadcast streaming',
     'echelonstudio': 'Echelon Studios', 'investigation discovery': 'Investigation Discovery', 'syfy': 'Syfy',
+    'ion mystery': 'ION Mystery', 'ion plus': 'ION Plus', 'ion': 'ION', 'ion tv': 'ION', 'gsn': 'GSN', 'xite': 'XITE', 'court tv': 'Court TV', 'cnn': 'CNN',
+    'fetv': 'FETV', 'amc+': 'AMC+', 'hgtv': 'HGTV', 'tlc': 'TLC', 'tnt': 'TNT', 'tbs': 'TBS', 'abc': 'ABC', 'cbs': 'CBS', 'cbs news': 'CBS News', 'bet': 'BET',
     'unknown 1': '', 'unknown': '', '~other': '~other'}
 HHI_ORDER = ['Under $25,000', '$25,000-$50,000', '$50,001-$75,000', '$75,001-$100,000', '$100,001-$150,000', '$150,001-$200,000', '$200,001+', 'Unknown']
 
