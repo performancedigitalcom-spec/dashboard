@@ -81,6 +81,8 @@ def meta(raw, S, E, months, today, pixels):
     base = {'limit': 500}
     save(raw, 'meta_rows.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='campaign', time_increment=1, time_range=rng(S, E),
          fields='campaign_id,campaign_name,impressions,clicks,inline_link_clicks,spend,actions,video_thruplay_watched_actions')))
+    _r = json.load(open(os.path.join(raw, 'meta_rows.json')))
+    print(f"::notice title=Meta campaign rows::{len(_r)} rows, keys {sorted(_r[0].keys()) if _r else []}, impressions {sum(int(x.get('impressions') or 0) for x in _r)}")
     save(raw, 'meta_check.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='account', time_increment=1, time_range=rng(S, E),
          fields='impressions,spend')))
     m0, m1 = months[0][0], months[-1][1]
