@@ -82,7 +82,9 @@ def meta(raw, S, E, months, today, pixels):
     save(raw, 'meta_rows.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='campaign', time_increment=1, time_range=rng(S, E),
          fields='campaign_id,campaign_name,impressions,clicks,inline_link_clicks,spend,actions,video_thruplay_watched_actions')))
     _r = json.load(open(os.path.join(raw, 'meta_rows.json')))
-    print(f"::notice title=Meta campaign rows::{META_API} {len(_r)} rows, impressions {sum(int(x.get('impressions') or 0) for x in _r)}, clicks {sum(int(x.get('clicks') or 0) for x in _r)}, sample {json.dumps({k: v for k, v in (_r[0] if _r else {}).items() if k != 'spend'})[:300]}")
+    if _r and not sum(int(x.get('impressions') or 0) for x in _r):
+        # seen Oct 21 2026: Meta returned impressions/clicks as 0 on every campaign row for this token
+        raise RuntimeError(f'Meta returned {len(_r)} campaign rows but every one has 0 impressions (Meta-side issue); keeping previous Meta data')
     save(raw, 'meta_check.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='account', time_increment=1, time_range=rng(S, E),
          fields='impressions,spend')))
     m0, m1 = months[0][0], months[-1][1]
