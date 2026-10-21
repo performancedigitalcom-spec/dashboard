@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 META_ACCOUNT = 'act_3326957687582017'
-META_API = 'https://graph.facebook.com/' + os.environ.get('META_API_VERSION', 'v23.0')
+META_API = 'https://graph.facebook.com/' + os.environ.get('META_API_VERSION', 'v24.0')
 GADS_LOGIN = '3978171358'
 GADS_CUSTOMERS = ['1617465645', '2297433325', '3759382237', '5323277935', '5696694303', '5794801121',
                   '6720136131', '7016721023', '8220148603', '8416419143', '9131703505']
@@ -82,7 +82,7 @@ def meta(raw, S, E, months, today, pixels):
     save(raw, 'meta_rows.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='campaign', time_increment=1, time_range=rng(S, E),
          fields='campaign_id,campaign_name,impressions,clicks,inline_link_clicks,spend,actions,video_thruplay_watched_actions')))
     _r = json.load(open(os.path.join(raw, 'meta_rows.json')))
-    print(f"::notice title=Meta campaign rows::{len(_r)} rows, keys {sorted(_r[0].keys()) if _r else []}, impressions {sum(int(x.get('impressions') or 0) for x in _r)}")
+    print(f"::notice title=Meta campaign rows::{META_API} {len(_r)} rows, impressions {sum(int(x.get('impressions') or 0) for x in _r)}, clicks {sum(int(x.get('clicks') or 0) for x in _r)}, sample {json.dumps({k: v for k, v in (_r[0] if _r else {}).items() if k != 'spend'})[:300]}")
     save(raw, 'meta_check.json', meta_get(f'{META_ACCOUNT}/insights', dict(base, level='account', time_increment=1, time_range=rng(S, E),
          fields='impressions,spend')))
     m0, m1 = months[0][0], months[-1][1]
