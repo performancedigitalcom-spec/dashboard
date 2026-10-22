@@ -32,6 +32,11 @@
       get y() { return y; },
       set y(v) { y = v; },
       get ctx() { return ctx; },
+      // drawing through doc.live always lands on the current page, even after ensure() starts a new one
+      live: new Proxy({}, {
+        get(_, k) { const v = ctx[k]; return typeof v === 'function' ? v.bind(ctx) : v; },
+        set(_, k, v) { ctx[k] = v; return true; },
+      }),
       page() {
         const c = document.createElement('canvas');
         c.width = W;
@@ -92,7 +97,7 @@
   }
 
   function header(doc, v) {
-    const { ctx } = doc;
+    const ctx = doc.live;
     doc.text('CLIENT PERFORMANCE', M, doc.y + 22, { size: 17, color: BLUE, weight: '700', font: DISPLAY });
     doc.text(v.st.client, M, doc.y + 72, { size: 46, color: INK, weight: '800', font: DISPLAY, maxW: W - 2 * M - 300 });
     doc.text(`${v.period.label} · ${dayFmt(parse(v.period.start))} – ${dayFmt(parse(v.period.end))}`, M, doc.y + 106, { size: 22, color: MUTED });
@@ -107,7 +112,7 @@
     const w = (W - 2 * M - gap * (items.length - 1)) / items.length;
     const h = 120;
     doc.ensure(h + 10);
-    const { ctx } = doc;
+    const ctx = doc.live;
     items.forEach((it, i) => {
       const x = M + i * (w + gap);
       ctx.fillStyle = PANEL;
@@ -128,7 +133,7 @@
   function heading(doc, t, color) {
     doc.ensure(90);
     doc.y += 14;
-    const { ctx } = doc;
+    const ctx = doc.live;
     ctx.fillStyle = color || BLUE;
     ctx.beginPath();
     ctx.arc(M + 8, doc.y + 18, 8, 0, Math.PI * 2);
@@ -141,7 +146,7 @@
     // cols: [{label, w (fraction), align, get}]
     const width = W - 2 * M;
     const rh = 34;
-    const { ctx } = doc;
+    const ctx = doc.live;
     const drawHead = () => {
       doc.ensure(rh * 2);
       doc.ctx.fillStyle = PANEL;
@@ -192,8 +197,8 @@
     if (sp && rows.some((r) => r.spend)) metrics.push(['spend', 'Investment', (x) => '$' + compact.format(x)]);
     const gap = 36, cw = (W - 2 * M - gap) / 2, ch = 250;
     const nRows = Math.ceil(metrics.length / 2);
-    doc.ensure(90 + Math.min(nRows, 1) * (ch + 50));
-    const { ctx } = doc;
+    doc.ensure(90 + nRows * (ch + 50)); // keep all the small charts on one page
+    const ctx = doc.live;
     doc.text('Daily delivery by platform', M, doc.y + 24, { size: 22, weight: '700', font: DISPLAY });
     // colour key, top right
     let lx = W - M;
@@ -261,7 +266,7 @@
 
   function tacticMix(doc, rows) {
     if (!rows || !rows.length) return;
-    const { ctx } = doc;
+    const ctx = doc.live;
     doc.ensure(120);
     // labels (chips)
     let x = M, y = doc.y;
@@ -299,7 +304,7 @@
   }
 
   function donutPdf(doc, x, y, title, slices, center) {
-    const { ctx } = doc;
+    const ctx = doc.live;
     const R = 92, r0 = 60, cx = x + R, cy = y + 44 + R;
     doc.text(title, x, y + 22, { size: 18, weight: '700', font: DISPLAY });
     const tot = d3.sum(slices, (d) => d.v) || 1;
@@ -314,8 +319,14 @@
       ctx.fill();
       a = b;
     }
-    doc.text(center[0], cx, cy + 8, { size: 26, weight: '800', font: DISPLAY, align: 'center' });
-    String(center[1]).split('\n').forEach((t, i) => doc.text(t, cx, cy + 28 + i * 16, { size: 13, color: MUTED, align: 'center' }));
+    const sub = String(center[1]).split('\n');
+    const by0 = cy + (sub.length > 1 ? -2 : 4);
+    doc.text(center[0], cx, by0, { size: 24, weight: '800', font: DISPLAY, align: 'center' });
+    sub.forEach((t, i) => {
+      const dy = by0 + 17 + i * 14 - cy;
+      const half = Math.sqrt(Math.max(0, (r0 - 4) ** 2 - dy * dy));
+      doc.text(t, cx, by0 + 17 + i * 14, { size: 11.5, color: MUTED, align: 'center', maxW: 2 * half });
+    });
     let ly = y + 58;
     const lx = x + 2 * R + 26;
     for (const s of slices) {
@@ -356,7 +367,7 @@
     const hOf = (c) => 64 + c.wrapped.reduce((a, l) => a + l.length * lh + 12, 0);
     const h = Math.max(...cols.map(hOf));
     doc.ensure(h);
-    const { ctx } = doc;
+    const ctx = doc.live;
     cols.forEach((c, i) => {
       const x = M + i * (cw + gap);
       ctx.fillStyle = PANEL;
@@ -401,14 +412,14 @@
     const solo = v.st.client !== 'All clients';
     const sp = v.st.spend;
     const ST = { 'on pace': ['On pace', '#1a7f37'], under: ['Under pace', '#c62828'], ahead: ['Ahead of pace', BLUE], stopped: ['No spend, 3 days', '#c62828'], 'new this month': ['New this month', MUTED] };
-    const cols = [{ label: solo ? 'Campaign' : 'Platform', w: solo ? (sp ? 0.25 : 0.37) : sp ? 0.33 : 0.45, align: 'left', get: (r) => r.name }];
+    const cols = [{ label: solo ? 'Campaign' : 'Platform', w: solo ? (sp ? 0.22 : 0.33) : sp ? 0.3 : 0.41, align: 'left', get: (r) => r.name }];
     if (solo) cols.push({ label: 'Platform', w: 0.12, align: 'left', get: (r) => r.platform });
     cols.push({ label: 'Spent vs month elapsed', w: 0.2, align: 'left', draw: (ctx, x, y, cw, rh, r) => hbar(doc.ctx, x + 8, y + 12, cw - 24, 11, r.spent_share, BLUE, r.elapsed_share) });
     if (sp) cols.push({ label: 'Spent so far', w: 0.11, get: (r) => money0(r.mtd) }, { label: 'Daily avg 7d', w: 0.1, get: (r) => money(r.daily_7d) });
     cols.push({ label: 'Projected', w: 0.11, get: (r) => chgP(r.projected_vs_last).replace(/\.\d%/, '%') });
     // client-facing: under-pace / stopped are left blank in the PDF (they stay on the live dashboard)
     const okSt = (r) => r.status !== 'under' && r.status !== 'stopped';
-    cols.push({ label: 'Status', w: 0.11, get: (r) => (okSt(r) ? (ST[r.status] || [r.status])[0] : ''), color: (r) => (ST[r.status] || [0, INK])[1] });
+    cols.push({ label: 'Status', w: 0.15, get: (r) => (okSt(r) ? (ST[r.status] || [r.status])[0] : ''), color: (r) => (ST[r.status] || [0, INK])[1] });
     table(doc, cols, rows);
   }
 
@@ -417,7 +428,7 @@
     if (!aud && !vid) return;
     const order = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+', '55+', 'Unknown'];
     const PC = { Meta: colors[0], 'Google Ads': colors[1], TikTok: colors[2], Programmatic: colors[3], All: BLUE };
-    const { ctx } = doc;
+    const ctx = doc.live;
     if (aud) {
       doc.ensure(420);
       heading(doc, 'Who saw the ads');
@@ -455,11 +466,12 @@
     }
     if (vid) {
       const plats = vid.rows.map((r) => r.platform).filter((p) => p !== 'All');
-      doc.ensure(300);
+      doc.ensure(150 + Math.ceil(plats.length / Math.min(3, plats.length)) * (36 + 5 * 30 + 16)); // heading and panels stay together
       heading(doc, 'Video completion');
       doc.wrap(vid.note, M, W - 2 * M, { size: 17, color: MUTED, lh: 1.45 });
       doc.y += 14;
-      const gap = 40, per = Math.min(2, plats.length), cw = (W - 2 * M - gap * (per - 1)) / per, bh = 36 + 5 * 30 + 16;
+      const per = Math.min(3, plats.length), gap = per === 3 ? 30 : 40, cw = (W - 2 * M - gap * (per - 1)) / per, bh = 36 + 5 * 30 + 16;
+      const tight = per === 3, numW = tight ? 58 : 70, barW = cw - (tight ? 70 + numW + 62 : 240);
       plats.forEach((pl, i) => {
         if (i % per === 0) {
           if (i) doc.y += bh;
@@ -472,10 +484,10 @@
         doc.text(pl, x, y + 22, { size: 20, weight: '700', font: DISPLAY });
         y += 36;
         for (const [lab, f, rate] of [['Plays', 'plays', 1], ['25%', 'p25', r.r25], ['50%', 'p50', r.r50], ['75%', 'p75', r.r75], ['100%', 'p100', r.r100]]) {
-          doc.text(lab, x, y + 18, { size: 17 });
-          hbar(doc.ctx, x + 70, y + 5, cw - 240, 16, rate, PC[pl]);
-          doc.text(int(r[f]), x + cw - 70, y + 18, { size: 17, align: 'right' });
-          doc.text(f === 'plays' ? '' : d3.format('.0%')(rate), x + cw, y + 18, { size: 16, color: MUTED, align: 'right' });
+          doc.text(lab, x, y + 18, { size: tight ? 15 : 17 });
+          hbar(doc.ctx, x + (tight ? 52 : 70), y + 5, barW, 16, rate, PC[pl]);
+          doc.text(int(r[f]), x + cw - (tight ? 44 : 70), y + 18, { size: tight ? 15 : 17, align: 'right' });
+          doc.text(f === 'plays' ? '' : d3.format('.0%')(rate), x + cw, y + 18, { size: tight ? 14 : 16, color: MUTED, align: 'right' });
           y += 30;
         }
       });
@@ -489,7 +501,7 @@
     doc.y += 38;
     const cs = cx.convSum;
     if (cs && cs.parts.length) {
-      doc.wrap(cs.text, M, W - 2 * M, { size: 16, color: INK, lh: 1.45 });
+      doc.wrap(cs.pdfText || cs.text, M, W - 2 * M, { size: 16, color: INK, lh: 1.45 }); // PDF leaves out "None were Primary actions"
       doc.y += 8;
       // stacked bar + key
       const bw = W - 2 * M, by = doc.y, tot = cs.parts.reduce((a, p) => a + p.v, 0) || 1;
@@ -685,10 +697,7 @@
       doc.wrap(`${v.st.client} had no paid delivery on Meta, Google Ads, TikTok or programmatic in this time frame.`, M, W - 2 * M, { size: 24 });
     }
 
-    const fresh = () => {
-      if (sel && sel.size < 6) doc.ensure(520);
-      else if (doc.y > M + 260) doc.page();
-    };
+    const fresh = () => doc.ensure(560); // start a new page only when less than about a third of the page is left
     if (all) {
       if (on('pacing')) pacingBlock(doc, v, window.PD.extra);
       const ex = window.PD.extra || {};

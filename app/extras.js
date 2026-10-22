@@ -565,7 +565,7 @@
         const mixed = single && !only && mapped.length > 0;
         const primTxt = (cs.n1 >= 0.5 ? ` ${sh(cs.n1)} were Primary actions${only && only.l1 ? ` (${lab(only.l1)})` : ''}.` : ' None were Primary actions.') + (mixed ? ' What counts as Primary, Secondary and Tertiary changed over this time frame (see below).' : '');
         dbox.append(el('p', 'pd-clead', lead + primTxt + how), box);
-        convSum = { n: cs.n, parts: parts.filter((x) => x[1] >= 0.5).map(([k, v, l, c]) => ({ k, v, l: l ? lab(l) : '', c, share: v / tot, pct: sh(v) })), text: lead + primTxt + how };
+        convSum = { pdfText: lead + (cs.n1 >= 0.5 ? primTxt : (mixed ? ' What counts as Primary, Secondary and Tertiary changed over this time frame (see below).' : '')) + how, n: cs.n, parts: parts.filter((x) => x[1] >= 0.5).map(([k, v, l, c]) => ({ k, v, l: l ? lab(l) : '', c, share: v / tot, pct: sh(v) })), text: lead + primTxt + how };
       }
       if (hasDefs) {
         // journeys with identical definitions (same dates and labels) are shown once
