@@ -1,0 +1,38 @@
+name: TikTok connect (one-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      auth_code:
+        description: auth_code from the TikTok authorization redirect (single use, expires in 1 hour)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-data
+  cancel-in-progress: false
+
+jobs:
+  connect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography
+      - name: Exchange the code for a long-term token
+        run: python tools/tiktok_connect.py
+        env:
+          PD_DATA_KEY: ${{ secrets.PD_DATA_KEY }}
+          AUTH_CODE: ${{ inputs.auth_code }}
+      - name: Commit and push
+        run: |
+          git config user.name "PD TikTok connect"
+          git config user.email "actions@users.noreply.github.com"
+          git add tools/tiktok.enc
+          git commit -m "TikTok connected"
+          git pull --rebase origin main
+          git push origin main

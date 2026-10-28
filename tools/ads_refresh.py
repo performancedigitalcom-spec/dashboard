@@ -269,6 +269,14 @@ def main():
     decrypt_all(os.path.join(o.repo, 'data'), data, base64.b64decode(key_b64))
     ex = load(os.path.join(HERE, 'refresh_extra.py'), 'refresh_extra')
 
+    if not os.environ.get('TIKTOK_TOKEN'):  # token saved by tools/tiktok_connect.py (encrypted with the data key)
+        try:
+            tk = load(os.path.join(HERE, 'tiktok_connect.py'), 'tiktok_connect').read().get('token')
+            if tk:
+                os.environ['TIKTOK_TOKEN'] = tk
+        except Exception as e:
+            warn('TikTok token file unreadable', f'{type(e).__name__}: {e}')
+
     done = []
     if o.raw:
         for f in glob.glob(os.path.join(o.raw, '*.json')):
