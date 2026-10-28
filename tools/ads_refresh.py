@@ -199,7 +199,25 @@ def tt_report(adv, a, b, data_level, dims, metrics, report_type='BASIC'):
         page += 1
 
 
+TT_DEEP = ['impressions', 'clicks', 'reach', 'video_play_actions', 'video_watched_2s', 'video_watched_6s', 'engaged_view', 'engaged_view_15s',
+           'average_video_play', 'likes', 'comments', 'shares', 'follows', 'profile_visits', 'engagements', 'total_landing_page_view']
+
+
+def month_list(a0, end):
+    """(first day, last day) of every month from a0's month through end's month; the last one stops at end."""
+    out, d = [], datetime.date.fromisoformat(a0).replace(day=1)
+    end = datetime.date.fromisoformat(end)
+    while d <= end:
+        nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        out.append((d.isoformat(), min(end, nxt - datetime.timedelta(days=1)).isoformat()))
+        d = nxt
+    return out
+
+
 def tiktok(raw, S, E, months):
+    if os.environ.get('TT_FROM'):  # one-off backfill of the monthly TikTok reports
+        months = month_list(os.environ['TT_FROM'], E)
+    regions = False
     for adv in TIKTOK_ADVERTISERS:
         save(raw, f'tiktok_rows_{adv}.json', {'list': tt_report(adv, S, E, 'AUCTION_CAMPAIGN', ['campaign_id', 'stat_time_day'],
              ['campaign_name', 'spend', 'impressions', 'clicks', 'video_play_actions', 'video_views_p100'])})
@@ -214,6 +232,20 @@ def tiktok(raw, S, E, months):
                  ['impressions', 'clicks'], 'AUDIENCE')})
             save(raw, f'tiktok_ads_{adv}_{m}.json', {'list': tt_report(adv, a, b, 'AUCTION_AD', ['ad_id'], ['ad_name', 'campaign_id', 'impressions',
                  'clicks', 'spend', 'video_play_actions', 'video_views_p25', 'video_views_p50', 'video_views_p75', 'video_views_p100'])})
+            # reach, attention and engagement per campaign and month, plus where (state) and on what (device)
+            save(raw, f'tiktok_ttx_{adv}_{m}.json', {'list': tt_report(adv, a, b, 'AUCTION_CAMPAIGN', ['campaign_id'], TT_DEEP)})
+            save(raw, f'tiktok_geo_{adv}_{m}.json', {'list': tt_report(adv, a, b, 'AUCTION_CAMPAIGN', ['campaign_id', 'province_id'],
+                 ['impressions', 'clicks'], 'AUDIENCE')})
+            save(raw, f'tiktok_dev_{adv}_{m}.json', {'list': tt_report(adv, a, b, 'AUCTION_CAMPAIGN', ['campaign_id', 'platform'],
+                 ['impressions', 'clicks'], 'AUDIENCE')})
+            regions = regions or adv
+    if regions:  # state names for the province ids
+        q = urllib.parse.urlencode({'advertiser_id': regions, 'placements': json.dumps(['PLACEMENT_TIKTOK']), 'objective_type': 'TRAFFIC',
+                                    'level_range': 'TO_PROVINCE'})
+        d = http(f'https://business-api.tiktok.com/open_api/v1.3/tool/region/?{q}', headers={'Access-Token': os.environ['TIKTOK_TOKEN']})
+        if d.get('code') == 0:
+            save(raw, 'tiktok_regions.json', {r['location_id']: r['name'] for r in (d.get('data') or {}).get('region_info', [])
+                                              if r.get('level') in ('PROVINCE', 'COUNTRY')})
 
 
 # ---------------- site data ----------------

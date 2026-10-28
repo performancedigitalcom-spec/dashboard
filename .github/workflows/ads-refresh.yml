@@ -6,7 +6,12 @@ on:
   schedule:
     - cron: '5 11 * * *'    # 7:05 AM EDT / 6:05 AM EST
     - cron: '5 13 * * *'    # 9:05 AM EDT safety re-run
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tt_from:
+        description: 'Optional one-off: re-pull TikTok monthly reports from this date (YYYY-MM-DD)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -36,6 +41,7 @@ jobs:
           GADS_CLIENT_SECRET: ${{ secrets.GADS_CLIENT_SECRET }}
           GADS_REFRESH_TOKEN: ${{ secrets.GADS_REFRESH_TOKEN }}
           TIKTOK_TOKEN: ${{ secrets.TIKTOK_TOKEN }}
+          TT_FROM: ${{ inputs.tt_from }}
       - name: Commit and push
         run: |
           git config user.name "PD ad refresh"

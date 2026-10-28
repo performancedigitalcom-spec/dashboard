@@ -248,6 +248,45 @@ def main():
             if pl:
                 newm.append(dict(platform='TikTok', cid=x['dimensions']['campaign_id'], m=m, kind='video', b='', plays=pl,
                                  **{f'p{q}': int(float(mt.get(f'video_views_p{q}', 0))) for q in (25, 50, 75, 100)}))
+    # TikTok reach / attention / engagement (kind ttx), state (kind geo) and device (kind dev), per campaign and month
+    regions = {}
+    for fn in files(o.raw, 'tiktok_regions*.json'):
+        regions.update(json.load(open(fn)))
+    DEV = {'IPHONE': 'iPhone', 'ANDROID': 'Android', 'IPAD': 'iPad', 'UNKNOWN': 'Other', 'PC': 'Computer'}
+    ni = lambda v: int(round(float(v or 0)))
+    for kind in ('ttx', 'geo', 'dev'):
+        for fn in files(o.raw, f'tiktok_{kind}_*.json'):
+            mm = re.match(rf'tiktok_{kind}_(\d+)_(\d{{4}}-\d{{2}})', os.path.basename(fn))
+            if not mm:
+                problems.append(f'{os.path.basename(fn)}: name must be tiktok_{kind}_<advertiserId>_<YYYY-MM>.json')
+                continue
+            m = mm.group(2)
+            replace.add(('TikTok', kind, m))
+            acc = {}
+            for x in load(fn)[0]:
+                d, mt = x['dimensions'], x['metrics']
+                if kind == 'ttx':
+                    if not ni(mt.get('impressions')):
+                        continue
+                    plays = ni(mt.get('video_play_actions'))
+                    newm.append(dict(platform='TikTok', cid=d['campaign_id'], m=m, kind='ttx', b='', imp=ni(mt.get('impressions')),
+                                     clk=ni(mt.get('clicks')), reach=ni(mt.get('reach')), plays=plays, v2=ni(mt.get('video_watched_2s')),
+                                     v6=ni(mt.get('video_watched_6s')), ev6=ni(mt.get('engaged_view')), ev15=ni(mt.get('engaged_view_15s')),
+                                     wt=round(float(mt.get('average_video_play') or 0) * plays), likes=ni(mt.get('likes')),
+                                     cmts=ni(mt.get('comments')), shares=ni(mt.get('shares')), follows=ni(mt.get('follows')),
+                                     pvis=ni(mt.get('profile_visits')), eng=ni(mt.get('engagements')), lpv=ni(mt.get('total_landing_page_view'))))
+                    continue
+                if kind == 'geo':
+                    pid = str(d.get('province_id'))
+                    b = 'Unknown' if pid in ('-1', '', 'None') else regions.get(pid, 'Region ' + pid)
+                else:
+                    b = DEV.get(str(d.get('platform')).upper(), str(d.get('platform')).title())
+                a = acc.setdefault((d['campaign_id'], b), [0, 0])
+                a[0] += ni(mt.get('impressions'))
+                a[1] += ni(mt.get('clicks'))
+            for (cid, b), (i, c) in acc.items():
+                if i:
+                    newm.append(dict(platform='TikTok', cid=cid, m=m, kind=kind, b=b, imp=i, clk=c))
     for fn in files(o.raw, 'google_video_*.json'):
         items, tr = load(fn)
         if tr:
