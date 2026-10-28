@@ -44,7 +44,7 @@
   PD.state = state;
 
   // ---------- custom date range ----------
-  const CUSTOM_IDS = ['totals', 'camps', 'gtypes', 'audience', 'video', 'creatives', 'psizes', 'ga4', 'insights', 'ctvmix'];
+  const CUSTOM_IDS = ['totals', 'camps', 'gtypes', 'audience', 'video', 'creatives', 'psizes', 'ga4', 'insights', 'ctvmix', 'ttdeep'];
   const DAY = 864e5;
   const iso = (d) => d.toISOString().slice(0, 10);
   let customMemo = { key: null, res: null };

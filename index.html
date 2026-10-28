@@ -177,6 +177,35 @@ body.pd-accounts .team { display: none !important; }
   .pd-stack > i { display: block; height: 100%; }
   .pd-funnel .pd-row { grid-template-columns: 6.5rem 1fr 5rem 3.5rem; }
 
+  /* ---------- TikTok reach, attention, engagement ---------- */
+  .pd-tt { --tt-a: #25c2c8; --tt-b: #fe2c55; --tt-ink: var(--pd-c2, #111827); }
+  .pd-tt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); gap: 12px; margin: 6px 0 22px; }
+  .pd-tt-stat { position: relative; padding: 14px 16px 13px; border-radius: 14px; border: 1px solid var(--pd-line, var(--color-border-line)); background: var(--color-panel, #fff); box-shadow: var(--pd-shadow); overflow: hidden; }
+  .pd-tt-stat::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c, var(--tt-a)); }
+  .pd-tt-stat .lbl { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-fg-muted); }
+  .pd-tt-stat .val { font-family: var(--pd-display); font-weight: 800; font-size: 27px; letter-spacing: -.03em; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+  .pd-tt-stat .sub { font-size: 12px; color: var(--color-fg-muted); line-height: 1.35; }
+  .pd-tt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 18px; margin-bottom: 18px; }
+  .pd-tt-panel { padding: 16px 18px; border-radius: 16px; border: 1px solid var(--color-border-line); background: color-mix(in srgb, var(--tt-a) 4%, var(--color-panel, #fff)); }
+  .pd-tt-panel h4 { margin: 0 0 4px; font-family: var(--pd-display); font-weight: 700; font-size: 14px; }
+  .pd-tt-panel .note { margin: 0 0 12px; font-size: 12px; }
+  .pd-tt-watch { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; }
+  .pd-tt-steps { display: flex; flex-direction: column; gap: 7px; }
+  .pd-tt-step { display: grid; grid-template-columns: 7.2rem 1fr 3.6rem; gap: 10px; align-items: center; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .pd-tt-step .tr { position: relative; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--tt-a) 10%, transparent); overflow: hidden; }
+  .pd-tt-step .tr > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 7px; background: linear-gradient(90deg, var(--tt-ink), color-mix(in srgb, var(--tt-ink) 55%, var(--tt-a))); transition: width .9s cubic-bezier(.2,.7,.2,1); }
+  .pd-tt-step .tr > span { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); font-weight: 700; font-size: 12px; color: #fff; mix-blend-mode: normal; text-shadow: 0 1px 2px rgba(0,0,0,.25); white-space: nowrap; }
+  .pd-tt-step .tr.light > span { color: var(--color-fg); text-shadow: none; }
+  .pd-tt-step b { text-align: right; font-weight: 700; }
+  .pd-tt-ring { width: 128px; text-align: center; }
+  .pd-tt-ring svg { width: 128px; height: 128px; display: block; }
+  .pd-tt-ring .big { font-family: var(--pd-display); font-weight: 800; font-size: 26px; fill: var(--color-fg); }
+  .pd-tt-ring .small { font-size: 10.5px; fill: var(--color-fg-muted); }
+  .pd-tt-ring div { font-size: 11.5px; color: var(--color-fg-muted); margin-top: 4px; line-height: 1.3; }
+  .pd-tt-geo { display: flex; flex-direction: column; gap: 7px; }
+  .pd-tt-geo .pd-row { grid-template-columns: 7.5rem 1fr 3rem 5rem; }
+  .pd-tt .pd-donut { background: color-mix(in srgb, var(--tt-b) 3%, var(--color-panel, #fff)); }
+  @media (max-width: 520px) { .pd-tt-stats { grid-template-columns: 1fr 1fr; gap: 10px; } .pd-tt-stat { padding: 12px 12px 11px 14px; } .pd-tt-stat .val { font-size: 23px; } .pd-tt-watch { grid-template-columns: 1fr; justify-items: center; } .pd-tt-steps { justify-self: stretch; } .pd-tt-step { grid-template-columns: 5.4rem 1fr 3rem; } .pd-tt-geo .pd-row { grid-template-columns: 5.6rem 1fr 2.6rem 4.4rem; gap: 8px; } }
   /* ---------- PD look: bold, clean ---------- */
   #dash-root { --pd-blue: #1B75BC; --pd-text: 'PD Text', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; --pd-display: 'PD Display', 'PD Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --pd-line: color-mix(in srgb, var(--color-border-line) 70%, transparent); --pd-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 4px 16px -8px rgba(15, 23, 42, .08); }
   .pd { font-family: var(--pd-text); gap: 30px; font-feature-settings: 'cv11', 'ss01'; }
@@ -583,6 +612,27 @@ body.pd-accounts .team { display: none !important; }
   <section class="pd-section" id="tiktok" hidden style="--swatch: var(--pd-c2)">
     <h2>TikTok</h2>
     <div class="pd-card pd-perf" data-perf="TikTok" data-source="tacperf" hidden></div>
+    <div class="pd-card pd-tt" id="tt-deep" data-source="ttdeep" hidden>
+      <h3>Reach and engagement</h3>
+      <p class="note" id="tt-note"></p>
+      <div class="pd-tt-stats" id="tt-stats"></div>
+      <div class="pd-tt-grid">
+        <div class="pd-tt-panel">
+          <h4>How long people watched</h4>
+          <p class="note">Of every video start, how many kept watching. TikTok counts a 15-second view as a focused, engaged view.</p>
+          <div class="pd-tt-watch"><div class="pd-tt-steps" id="tt-watch"></div><div class="pd-tt-ring" id="tt-ring"></div></div>
+        </div>
+        <figure class="pd-donut" id="tt-eng"></figure>
+      </div>
+      <div class="pd-tt-grid">
+        <div class="pd-tt-panel">
+          <h4>Where the ads were seen</h4>
+          <p class="note">Share of impressions by state, then click-through rate.</p>
+          <div class="pd-tt-geo" id="tt-geo"></div>
+        </div>
+        <figure class="pd-donut" id="tt-dev"></figure>
+      </div>
+    </div>
     <div class="pd-card">
       <h3>TikTok campaigns</h3>
       <p class="note">Auction campaigns.</p>

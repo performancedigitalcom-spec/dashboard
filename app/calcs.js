@@ -333,6 +333,55 @@ dash.calc('video', {
   },
 });
 
+dash.calc('ttdeep', {
+  title: 'TikTok reach, attention and engagement',
+  description: 'For each client and period, from TikTok’s monthly reports: people reached and how often they saw the ads, how long people watched (2-second, 6-second and 15-second views, average watch time), engagement (likes, comments, shares, follows, profile visits), landing page views, and impressions by state and by device. Reach is unique within each campaign and month, so it is added up across campaigns and months.',
+  inputs: ['campaigns', 'monthly', 'periods'],
+  fn: (campaigns, monthly, periods) => {
+    const owner = {};
+    for (const c of campaigns) if (c.platform === 'TikTok') owner[c.campaign_id] = c.client;
+    const F = ['imp', 'clk', 'reach', 'plays', 'v2', 'v6', 'ev6', 'ev15', 'wt', 'likes', 'cmts', 'shares', 'follows', 'pvis', 'eng', 'lpv'];
+    const acc = new Map();
+    for (const p of periods) {
+      const m0 = p.start.slice(0, 7), m1 = p.end.slice(0, 7);
+      const months = m0 === m1 ? m0 : m0 + ' to ' + m1;
+      for (const r of monthly) {
+        if (r.platform !== 'TikTok' || (r.kind !== 'ttx' && r.kind !== 'geo' && r.kind !== 'dev') || r.m < m0 || r.m > m1) continue;
+        const client = owner[r.cid];
+        if (!client) continue;
+        for (const c of [client, 'All clients']) {
+          const kind = r.kind === 'ttx' ? 'sum' : r.kind;
+          const k = [p.period, c, kind, r.b].join('|');
+          let o = acc.get(k);
+          if (!o) {
+            o = { k, period: p.period, client: c, kind, bucket: r.b || '', months, imp: 0, clk: 0 };
+            if (kind === 'sum') for (const f of F) o[f] = 0;
+            acc.set(k, o);
+          }
+          if (kind === 'sum') for (const f of F) o[f] += r[f] || 0;
+          else { o.imp += r.imp; o.clk += r.clk; }
+        }
+      }
+    }
+    const tot = new Map();
+    for (const o of acc.values()) if (o.kind !== 'sum') tot.set([o.period, o.client, o.kind].join('|'), (tot.get([o.period, o.client, o.kind].join('|')) || 0) + o.imp);
+    return [...acc.values()].map((o) => {
+      const ctr = o.imp ? o.clk / o.imp : null;
+      if (o.kind !== 'sum') return { ...o, ctr, share: o.imp / (tot.get([o.period, o.client, o.kind].join('|')) || 1) };
+      return {
+        ...o, ctr,
+        freq: o.reach ? o.imp / o.reach : null,
+        avgw: o.plays ? o.wt / o.plays : null,
+        r2: o.plays ? o.v2 / o.plays : null,
+        r6: o.plays ? o.v6 / o.plays : null,
+        r15: o.plays ? o.ev15 / o.plays : null,
+        er: o.imp ? o.eng / o.imp : null,
+        lpr: o.clk ? o.lpv / o.clk : null,
+      };
+    });
+  },
+});
+
 dash.calc('pacing', {
   title: 'Budget pacing this month',
   description: 'Each campaign’s spend so far this month against its spend rate last month (spend per day it delivered, times the days in this month). The projection adds the last 7 days’ daily average for each day left.',

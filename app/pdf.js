@@ -650,6 +650,84 @@
     table(doc, hc.map((c) => ({ ...c, w: c.w / th })), cx.hhi);
   }
 
+  // TikTok reach, attention and engagement (all neutral/positive facts, safe for clients)
+  function ttBlock(doc, tt) {
+    if (!tt) return;
+    const ctx = doc.live;
+    const full = W - 2 * M;
+    doc.ensure(420);
+    doc.text('Reach and engagement', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+    doc.y += 34;
+    doc.wrap(tt.note, M, full, { size: 15, color: MUTED, lh: 1.4 });
+    doc.y += 14;
+    // six stat cards, 3 per row
+    const gap = 16, cw = (full - 2 * gap) / 3, ch = 112;
+    const deep = (tt.s.r2 || 0) >= 0.15;
+    const stats = tt.stats.map((x) => (x[4] === 'lpv' && (tt.s.lpr || 0) < 0.5 ? [x[0], x[1], 'Pages that loaded after a click', x[3], x[4]]
+      : x[4] === 'avgw' && !deep ? ['Video plays', compact.format(tt.s.plays || 0), 'Times the videos started', x[3], 'plays'] : x));
+    stats.forEach(([lbl, val, sub, c], i) => {
+      if (i % 3 === 0) { if (i) doc.y += ch + gap; doc.ensure(ch + 10); }
+      const x = M + (i % 3) * (cw + gap), y = doc.y;
+      ctx.fillStyle = PANEL; ctx.fillRect(x, y, cw, ch);
+      ctx.fillStyle = c; ctx.fillRect(x, y, 5, ch);
+      doc.text(lbl.toUpperCase(), x + 20, y + 30, { size: 13, color: MUTED, weight: '700', maxW: cw - 30 });
+      doc.text(val, x + 19, y + 72, { size: 32, weight: '800', font: DISPLAY, maxW: cw - 30 });
+      doc.text(sub, x + 20, y + 98, { size: 14.5, color: MUTED, maxW: cw - 30 });
+    });
+    doc.y += ch + 30;
+    // watch funnel + ring | engagement donut. Client PDF: the watch panel only shows when viewing depth is healthy
+    const half = (full - 30) / 2, ph = 250;
+    doc.ensure(ph + 10);
+    const y0 = doc.y;
+    const showWatch = deep;
+    if (showWatch) {
+    doc.text('How long people watched', M, y0 + 22, { size: 18, weight: '700', font: DISPLAY });
+    let y = y0 + 44;
+    const ringW = 150, bx = M + 128, bw = half - 128 - 262;
+    for (const [lbl, n, r] of tt.steps) {
+      doc.text(lbl, M, y + 19, { size: 14.5 });
+      ctx.fillStyle = '#E3F6F7'; ctx.fillRect(bx, y + 4, bw, 22);
+      ctx.fillStyle = '#111827'; ctx.fillRect(bx, y + 4, Math.max(3, Math.min(1, r || 0) * bw), 22);
+      doc.text(compact.format(n || 0), bx + bw + 8, y + 20, { size: 14.5, weight: '700' });
+      doc.text(r === 1 ? '100%' : d3.format('.0%')(r || 0), bx + bw + 62, y + 20, { size: 13.5, color: MUTED });
+      y += 36;
+    }
+    // ring
+    const rcx = M + half - ringW / 2, rcy = y0 + 120, R = 58;
+    ctx.lineWidth = 13; ctx.lineCap = 'round';
+    ctx.strokeStyle = '#DDF3F4'; ctx.beginPath(); ctx.arc(rcx, rcy, R, 0, Math.PI * 2); ctx.stroke();
+    if (tt.frac > 0) { ctx.strokeStyle = '#FE2C55'; ctx.beginPath(); ctx.arc(rcx, rcy, R, -Math.PI / 2, -Math.PI / 2 + tt.frac * Math.PI * 2); ctx.stroke(); }
+    ctx.lineCap = 'butt';
+    doc.text(tt.s.avgw == null ? '—' : d3.format('.1f')(tt.s.avgw) + 's', rcx, rcy + 6, { size: 26, weight: '800', font: DISPLAY, align: 'center' });
+    doc.text('avg. watch time', rcx, rcy + 24, { size: 11.5, color: MUTED, align: 'center' });
+    doc.text(`${d3.format('.0%')(tt.frac)} watched 6+ sec`, rcx, rcy + R + 32, { size: 13.5, color: MUTED, align: 'center' });
+    }
+    if (tt.eng.length) donutPdf(doc, showWatch ? M + half + 30 : M, y0, 'What people did after seeing the ads', tt.eng.map((e) => ({ ...e, label: `${e.label} · ${compact.format(e.v)}` })), [compact.format(tt.engTot), 'engagements']);
+    doc.y = y0 + ph;
+    // states | devices
+    const geo = tt.geo || [], dev = tt.dev || [];
+    if (geo.length || dev.length) {
+      const gh = Math.max(250, 44 + geo.length * 30 + 10);
+      doc.ensure(gh + 10);
+      const y1 = doc.y;
+      if (geo.length) {
+        doc.text('Where the ads were seen', M, y1 + 22, { size: 18, weight: '700', font: DISPLAY });
+        let yy = y1 + 46;
+        const mx = Math.max(...geo.map((r) => r.share), 0.01);
+        for (const r of geo) {
+          doc.text(r.bucket === 'Unknown' ? 'Not reported' : r.bucket, M, yy + 17, { size: 14.5, maxW: 150, color: r.other ? MUTED : INK });
+          hbar(doc.ctx, M + 160, yy + 4, half - 160 - 150, 16, r.share / mx, r.other ? '#94A3B8' : '#25C2C8');
+          doc.text(r.share < 0.01 ? '<1%' : d3.format('.0%')(r.share), M + half - 92, yy + 17, { size: 14.5, weight: '700', align: 'right' });
+          doc.text(pct(r.ctr) + ' CTR', M + half, yy + 17, { size: 13, color: MUTED, align: 'right' });
+          yy += 30;
+        }
+      }
+      if (dev.length) donutPdf(doc, M + half + 30, y1, 'Impressions by device', dev, tt.devCenter);
+      doc.y = y1 + gh;
+    }
+    doc.y += 10;
+  }
+
   let HIDE_DOWN = false;
   const chgP = (v) => (HIDE_DOWN && v != null && isFinite(v) && v < 0 ? '' : chg(v));
   function build(sel) {
@@ -799,6 +877,10 @@
       doc.ensure(400);
       heading(doc, 'TikTok', colors[2]);
       (on('perf') && perfBlock(doc, (window.PD.extra.perf || {})['TikTok']));
+      if (on('ttdeep')) ttBlock(doc, window.PD.extra && window.PD.extra.tt);
+      doc.ensure(160);
+      doc.text('TikTok campaigns', M, doc.y + 26, { size: 22, weight: '700', font: DISPLAY });
+      doc.y += 40;
       const cols = [
         { label: 'Campaign', w: sp ? 0.34 : 0.46, align: 'left', get: name },
         { label: 'Impressions', w: 0.13, get: (r) => int(r.imp) },
@@ -1011,7 +1093,7 @@
     const groups = [
       ['Overview', [['summary', 'Headline numbers, story and highlights'], ex.story && ['improvebox', '“Things to improve” box (internal)'], ['daily', 'Daily delivery charts'], ['mix', 'Channel mix'],
         ex.pacing && ex.pacing.length && ['pacing', 'Pacing this month'], ex.aud && ['audience', 'Who saw the ads'], ex.vid && ['video', 'Video completion']]],
-      ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'],
+      ['Platforms', [has('Meta') && ['meta', 'Meta (campaigns, creatives, pixel)'], has('Google Ads') && ['google', 'Google Ads'], has('TikTok') && ['tiktok', 'TikTok'], has('TikTok') && ex.tt && ['ttdeep', 'TikTok reach and engagement'],
         has('Programmatic') && ['prog', 'Programmatic campaigns'], ex.perf && Object.values(ex.perf).some((l) => l.length) && ['perf', 'Performance vs. market (positive notes only)']]],
       ['Programmatic tactics', [...(ex.tactics || []).flatMap((t) => [['tac:' + t.tac, `${t.label} creatives`], t.tac === 'CTV' && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households']]), !(ex.tactics || []).some((t) => t.tac === 'CTV') && ex.ctv && ex.ctv.show && ['ctv', 'CTV networks and households'], ex.psizes && ex.psizes.length && ['sizes', 'Display and native by ad size']]],
       ['Website', [ex.ga4 && (ex.ga4.all ? ex.ga4.rows.length : ex.ga4.total) && ['ga4', 'Website analytics (GA4)']]],

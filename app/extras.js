@@ -304,6 +304,122 @@
         out.vid = { pl, rows: mine, note: document.getElementById('vid-note').textContent };
       }
     }
+    // ---------- TikTok reach, attention, engagement ----------
+    const ttd = data('ttdeep');
+    const ttBox = document.getElementById('tt-deep');
+    out.tt = null;
+    if (ttd && ttBox) {
+      const mine = ttd.filter((r) => r.period === period.period && r.client === st.client);
+      const s = mine.find((r) => r.kind === 'sum');
+      ttBox.hidden = !s || !s.imp;
+      if (s && s.imp) {
+        const compactN = (v) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+        const secs = (v) => (v == null ? '—' : d3.format('.1f')(v) + ' s');
+        const monthTxt = s.months.replace(/(\d{4})-(\d{2})/g, (m, y, mo) => d3.utcFormat('%b %Y')(new Date(Date.UTC(+y, +mo - 1, 1))));
+        const parts = [
+          ['Website clicks', s.clk, '#25c2c8'],
+          ['Profile visits', s.pvis, '#111827'],
+          ['Likes', s.likes, '#fe2c55'],
+          ['New followers', s.follows, '#7c3aed'],
+          ['Shares', s.shares, '#f59e0b'],
+          ['Comments', s.cmts, '#64748b'],
+        ].filter((p) => p[1] > 0);
+        const engTot = parts.reduce((a, p) => a + p[1], 0);
+        const er = s.imp ? engTot / s.imp : null;
+        document.getElementById('tt-note').textContent = `From TikTok’s monthly reports (${monthTxt}). People reached is counted once per campaign each month, so someone reached in two different months counts twice.`;
+        const stats = [
+          ['People reached', s.reach ? compactN(s.reach) : '—', s.reach ? nf(s.reach) + ' unique viewers' : '', '#25c2c8', 'reach'],
+          ['Frequency', s.freq ? d3.format('.1f')(s.freq) + '×' : '—', 'Times each person saw an ad', '#111827', 'freq'],
+          ['Engagement rate', er == null ? '—' : d3.format('.2%')(er), `${nf(engTot)} engagements`, '#fe2c55', 'er'],
+          ['Average watch time', secs(s.avgw), 'Per video play', '#7c3aed', 'avgw'],
+          ['Profile visits', nf(s.pvis), s.follows ? `${nf(s.follows)} new follower${s.follows === 1 ? '' : 's'}` : 'People who opened the profile', '#111827', 'pvis'],
+          ['Landing page views', nf(s.lpv), s.lpr != null && s.lpv ? `${p0(Math.min(1, s.lpr))} of clicks loaded the page` : 'Pages that loaded after a click', '#25c2c8', 'lpv'],
+        ];
+        const sb = document.getElementById('tt-stats');
+        sb.replaceChildren();
+        for (const [lbl, val, sub, c, f] of stats) {
+          const d = el('div', 'pd-tt-stat');
+          d.style.setProperty('--c', c);
+          const v = el('div', 'val', val);
+          mark(v, 'ttdeep', f, s.k);
+          d.append(el('div', 'lbl', lbl), v, el('div', 'sub', sub));
+          sb.append(d);
+        }
+        // attention funnel
+        const steps = [['Video plays', s.plays, 1], ['Watched 2+ sec', s.v2, s.r2], ['Watched 6+ sec', s.v6, s.r6]];
+        if (s.ev15) steps.push(['Watched 15+ sec', s.ev15, s.r15]);
+        const wb = document.getElementById('tt-watch');
+        wb.replaceChildren();
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        steps.forEach(([lbl, n, r], i) => {
+          const row = el('div', 'pd-tt-step');
+          const small = (r || 0) < 0.3;
+          const tr = el('div', 'tr' + (small ? ' light' : ''));
+          const fill = el('i');
+          const num = el('span', null, compactN(n || 0));
+          if (small) num.style.left = `calc(${Math.max(1.5, (r || 0) * 100)}% + 8px)`;
+          tr.append(fill, num);
+          const pc = el('b', null, i ? p0(r) : '100%');
+          row.append(el('span', null, lbl), tr, pc);
+          wb.append(row);
+          const w = Math.max(1.5, (r || 0) * 100) + '%';
+          if (reduce) fill.style.width = w;
+          else setTimeout(() => (fill.style.width = w), 60 + i * 120);
+        });
+        // average-watch-time ring: share of plays that made it past 6 seconds
+        const ring = document.getElementById('tt-ring');
+        ring.replaceChildren();
+        const S = 128, R = 56, sw = 12;
+        const svg = d3.create('svg').attr('viewBox', `0 0 ${S} ${S}`).attr('role', 'img').attr('aria-label', 'Average watch time');
+        const g = svg.append('g').attr('transform', `translate(${S / 2},${S / 2})`);
+        g.append('circle').attr('r', R).attr('fill', 'none').attr('stroke', 'color-mix(in srgb, #25c2c8 16%, transparent)').attr('stroke-width', sw);
+        const frac = Math.max(0, Math.min(1, s.r6 || 0));
+        const arc = d3.arc().innerRadius(R - sw / 2).outerRadius(R + sw / 2).cornerRadius(sw / 2).startAngle(0);
+        const path = g.append('path').attr('fill', '#fe2c55');
+        if (reduce) path.attr('d', arc({ endAngle: frac * 2 * Math.PI }));
+        else path.attr('d', arc({ endAngle: 0 })).transition().duration(1000).ease(d3.easeCubicOut).attrTween('d', () => (t) => arc({ endAngle: t * frac * 2 * Math.PI }));
+        g.append('text').attr('class', 'big').attr('text-anchor', 'middle').attr('y', 4).text(secs(s.avgw).replace(' s', 's'));
+        g.append('text').attr('class', 'small').attr('text-anchor', 'middle').attr('y', 22).text('avg. watch time');
+        ring.append(svg.node(), el('div', null, `${p0(frac)} of plays watched 6+ seconds`));
+        // engagement mix
+        donut(document.getElementById('tt-eng'), 'What people did after seeing the ads', parts.map(([label, v, c]) => ({ label: `${label} · ${nf(v)}`, v, c })), compactN(engTot), 'engagements');
+        // states
+        const geo = mine.filter((r) => r.kind === 'geo' && r.imp > 0).sort((a, b) => (a.bucket === 'Unknown') - (b.bucket === 'Unknown') || b.imp - a.imp);
+        const gb = document.getElementById('tt-geo');
+        gb.replaceChildren();
+        const top = geo.slice(0, 7);
+        const rest = geo.slice(7);
+        if (rest.length) {
+          const o = rest.reduce((a, r) => ({ imp: a.imp + r.imp, clk: a.clk + r.clk, share: a.share + r.share }), { imp: 0, clk: 0, share: 0 });
+          top.push({ bucket: `${rest.length} other state${rest.length === 1 ? '' : 's'}`, ...o, ctr: o.imp ? o.clk / o.imp : null, other: true });
+        }
+        const gmax = d3.max(top, (r) => r.share) || 1;
+        for (const r of top) {
+          const row = el('div', 'pd-row');
+          row.append(el('span', null, r.bucket === 'Unknown' ? 'Not reported' : r.bucket));
+          row.append(bar(r.share / gmax, r.other ? '#94a3b8' : '#25c2c8'));
+          const sh = el('span', 'r', r.share < 0.01 ? '<1%' : p0(r.share));
+          if (r.k) mark(sh, 'ttdeep', 'share', r.k);
+          row.append(sh, el('span', 'm', pct(r.ctr) + ' CTR'));
+          gb.append(row);
+        }
+        gb.closest('.pd-tt-panel').hidden = !geo.length;
+        // devices
+        const DC = { iPhone: '#111827', Android: '#25c2c8', iPad: '#fe2c55', Computer: '#7c3aed', Other: '#cbd5e1' };
+        const dev = mine.filter((r) => r.kind === 'dev' && r.imp > 0).sort((a, b) => (a.bucket === 'Other') - (b.bucket === 'Other') || b.imp - a.imp);
+        const devSlices = dev.map((r) => ({ label: r.bucket === 'Other' ? 'Other / not reported' : r.bucket, v: r.imp, c: DC[r.bucket] || '#94a3b8', dim: r.bucket === 'Other' }));
+        const lead = dev[0];
+        donut(document.getElementById('tt-dev'), 'Impressions by device', devSlices, lead ? p0(lead.share) : '—', lead ? `on ${lead.bucket}` : '');
+        document.getElementById('tt-dev').hidden = !dev.length;
+        out.tt = {
+          s, stats, steps, engTot, er,
+          eng: parts.map(([label, v, c]) => ({ label, v, c })),
+          geo: top, dev: devSlices, devCenter: [lead ? p0(lead.share) : '—', lead ? `on ${lead.bucket}` : ''],
+          note: document.getElementById('tt-note').textContent, frac,
+        };
+      }
+    }
+
     // ---------- creatives ----------
     const crs = data('creatives');
     if (crs && PD.fillTable) {
