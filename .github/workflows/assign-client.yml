@@ -1,0 +1,43 @@
+name: Assign client to campaigns
+
+on:
+  workflow_dispatch:
+    inputs:
+      campaign_ids:
+        description: Campaign ID(s), comma separated
+        required: true
+      client:
+        description: Client name as it should appear on the dashboard
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-data
+  cancel-in-progress: false
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography
+      - run: python tools/assign_client.py --repo .
+        env:
+          PD_DATA_KEY: ${{ secrets.PD_DATA_KEY }}
+          PD_TEAM_PASSWORD: ${{ secrets.PD_TEAM_PASSWORD }}
+          CAMPAIGN_IDS: ${{ inputs.campaign_ids }}
+          CLIENT: ${{ inputs.client }}
+      - name: Commit and push
+        run: |
+          git config user.name "PD client mapping"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Assign client: ${{ inputs.client }}"
+          git pull --rebase origin main
+          git push origin main
